@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import beat_align, ffmpeg_utils
 from .audio_energy import compute_energy_curve, energy_in_range
-from .highlight_selector import select_highlights
+from .highlight_selector import select_highlights, select_snippet_window
 from .music_provider import (
     MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
     pick_local_track, resolve_local_tracks,
@@ -229,16 +229,36 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             )
 
         if settings.create_highlight_reel and results:
-            report(97, "Stitching highlight reel...")
+            report(97, "Pulling highlights for the reel...")
+            # Target the reel at the SAME length range as one normal clip,
+            # not the sum of every clip — pull a short highlight out of each
+            # clip instead of concatenating them whole.
+            target_reel_duration = (settings.min_len + settings.max_len) / 2
+            per_snippet_duration = max(target_reel_duration / len(results), 1.5)
+
+            snippet_clips = []
+            for i, r in enumerate(results):
+                snippet_start, snippet_end = select_snippet_window(
+                    times, values, r.start, r.end, per_snippet_duration,
+                )
+                snippet_duration = snippet_end - snippet_start
+                rel_start = snippet_start - r.start
+                snippet_path = tmp_dir / f"reel_snippet_{i}.mp4"
+                ffmpeg_utils.trim_clip(r.path, str(snippet_path), rel_start, snippet_duration)
+                snippet_clips.append((str(snippet_path), snippet_duration))
+
+            report(98, "Stitching highlight reel...")
             reel_path = output_dir / "highlight_reel.mp4"
-            reel_clips = [(r.path, r.end - r.start) for r in results]
-            ffmpeg_utils.stitch_clips_with_crossfade(reel_clips, str(reel_path))
-            reel_duration = sum(d for _, d in reel_clips) - max(len(reel_clips) - 1, 0) * 0.4
+            ffmpeg_utils.stitch_clips_with_crossfade(snippet_clips, str(reel_path))
+            reel_duration = sum(d for _, d in snippet_clips) - max(len(snippet_clips) - 1, 0) * 0.4
             results.append(ClipResult(
                 path=str(reel_path),
                 start=0.0,
                 end=reel_duration,
-                track_attribution=f"Full highlight reel — all {len(reel_clips)} clips stitched with crossfades",
+                track_attribution=(
+                    f"Highlight reel — best {per_snippet_duration:.1f}s moment from each of "
+                    f"{len(snippet_clips)} clips, stitched with crossfades"
+                ),
             ))
 
         report(100, "Done.")

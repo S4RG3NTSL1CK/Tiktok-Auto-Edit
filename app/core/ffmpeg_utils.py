@@ -155,6 +155,21 @@ def export_clip(
     run_ffmpeg(args)
 
 
+def trim_clip(input_path: str, output_path: str, start: float, duration: float) -> None:
+    """Frame-accurate re-encoded trim of an already-rendered clip (e.g. to
+    pull a short snippet out of it) — deliberately not `-c copy`, which
+    snaps to the nearest keyframe and can produce a misaligned or broken
+    result for an arbitrary short in-GOP offset."""
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    run_ffmpeg([
+        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", input_path,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+        "-movflags", "+faststart",
+        output_path,
+    ])
+
+
 def stitch_clips_with_crossfade(clips: list, output_path: str, transition_duration: float = 0.4) -> None:
     """Concatenates already-rendered clips (same resolution/fps/audio format,
     as produced by export_clip) into one video, crossfading video and audio

@@ -97,3 +97,31 @@ def select_highlights(
 
     selected.sort(key=lambda w: w.start)
     return selected
+
+
+def select_snippet_window(
+    energy_times: np.ndarray,
+    energy_values: np.ndarray,
+    start: float,
+    end: float,
+    duration: float,
+    step: float = 1.0,
+) -> tuple:
+    """Finds the highest-energy sub-window of `duration` seconds within
+    [start, end], for pulling a short highlight out of an already-selected
+    clip. Returns (snippet_start, snippet_end). If the clip is already
+    shorter than `duration`, returns the clip's own bounds unchanged."""
+    span = end - start
+    if span <= duration:
+        return start, end
+
+    best_start, best_score = start, -1.0
+    t = start
+    while t + duration <= end:
+        mean_e, _ = energy_in_range(energy_times, energy_values, t, t + duration)
+        if mean_e > best_score:
+            best_score = mean_e
+            best_start = t
+        t += step
+
+    return best_start, best_start + duration

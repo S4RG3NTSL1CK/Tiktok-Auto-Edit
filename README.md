@@ -37,13 +37,22 @@ Fully local, offline heuristic — no cloud video AI:
 
 Optional checkbox: **Also stitch all clips into one highlight reel**, off by
 default. When on, every generated clip still gets its own file as normal
-(`clip_01.mp4`, etc.) — this adds one more file, `highlight_reel.mp4`, all
-of them concatenated in chronological order with a short crossfade (video
-and audio) at each join instead of a hard cut. If clips have different
-background tracks (Auto music mode can pick a different track per clip),
-the audio crossfade smooths the transition between songs rather than
-cutting abruptly; for one continuous unbroken track throughout, pick Manual
-or Local (single file) music mode instead of Auto.
+(`clip_01.mp4`, etc.) — this adds one more file, `highlight_reel.mp4`.
+
+The reel is **not** all your clips concatenated end to end — that would run
+several minutes long. Instead it pulls the single highest-energy moment out
+of *each* clip (reusing the same audio-energy analysis used to pick the
+clips in the first place) and stitches just those short highlights
+together, with a crossfade (video and audio) at each join instead of a hard
+cut. The total reel length targets the same range as one normal clip (the
+midpoint of your min/max clip length setting, split evenly across however
+many clips you generated) — so with the default 15–45s range, the reel
+itself lands around 30s regardless of how many clips fed into it, not
+N times longer. If clips have different background tracks (Auto music mode
+can pick a different track per clip), the audio crossfade smooths the
+transition between songs rather than cutting abruptly; for one continuous
+unbroken track throughout, pick Manual or Local (single file) music mode
+instead of Auto.
 
 ## Video/music alignment
 
