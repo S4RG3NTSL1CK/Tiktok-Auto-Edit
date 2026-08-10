@@ -29,6 +29,10 @@ def is_newer(remote_version: str, current_version: str) -> bool:
     return _parse_version(remote_version) > _parse_version(current_version)
 
 
+def versions_equal(a: str, b: str) -> bool:
+    return _parse_version(a) == _parse_version(b)
+
+
 def check_for_update(current_version: str, timeout: float = 10) -> UpdateInfo:
     """Returns an UpdateInfo if a newer release with a .exe asset exists, else None.
     Never raises: any network/parse failure is treated as "no update available"."""

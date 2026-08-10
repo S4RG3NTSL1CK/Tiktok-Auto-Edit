@@ -15,9 +15,13 @@ will show an "Unknown Publisher" warning on first run — click **More info →
 Run anyway**.
 
 **Auto-update:** on launch, the app checks GitHub for a newer release. If one
-exists, it asks before downloading and installing — accepting closes the app,
-installs silently, and you relaunch it. No manual reinstall needed after the
-first install.
+exists, it asks before downloading; once downloaded it tells you it's about
+to install and close — **wait for it to reopen on its own rather than
+launching it manually**, especially now that the bundle includes
+numpy/scipy/opencv and can take a little while to copy. If you do launch it
+manually mid-install and get a stale version, it'll now say so honestly
+("update did not complete") instead of falsely claiming success — just try
+updating again.
 
 ## How it picks clips
 

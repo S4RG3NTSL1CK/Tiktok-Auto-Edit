@@ -16,7 +16,7 @@ from .. import config
 from ..core.ffmpeg_utils import probe_video, FFmpegError
 from ..core.music_provider import resolve_local_tracks
 from ..core.pipeline import PipelineSettings
-from ..core.updater import launch_installer_and_exit
+from ..core.updater import launch_installer_and_exit, versions_equal
 from ..version import __version__
 from .music_browser_dialog import MusicBrowserDialog
 from .settings_dialog import SettingsDialog
@@ -253,10 +253,23 @@ class MainWindow(QMainWindow):
 
     def _notify_if_just_updated(self):
         pending_version = config.consume_pending_update()
-        if pending_version:
+        if not pending_version:
+            return
+        if versions_equal(pending_version, __version__):
             QMessageBox.information(
                 self, "Update installed",
                 f"✓ Updated to {pending_version} successfully.",
+            )
+        else:
+            # The marker was written before install, but this running binary
+            # is still an older version — the silent install didn't actually
+            # land (e.g. it was still copying files when the app got
+            # relaunched). Say so honestly instead of a false "success".
+            QMessageBox.warning(
+                self, "Update did not complete",
+                f"An update to {pending_version} was started, but this is still v{__version__} — "
+                "the install didn't finish. Wait a few seconds for any installer window to close, "
+                "then try updating again.",
             )
 
     def _check_for_update_in_background(self):
@@ -265,6 +278,10 @@ class MainWindow(QMainWindow):
         self.update_check_worker.start()
 
     def _on_update_found(self, info):
+        if self.worker is not None and self.worker.isRunning():
+            # Don't interrupt an in-progress render with a force-close
+            # installer; the check just runs again next launch.
+            return
         reply = QMessageBox.question(
             self, "Update available",
             f"Tiktok Auto Edit {info.version} is available (you have v{__version__}).\n\n"
@@ -290,6 +307,11 @@ class MainWindow(QMainWindow):
                 "the Windows build. Run it manually to install.",
             )
             return
+        QMessageBox.information(
+            self, "Installing update",
+            f"Installing {self._pending_update_version} now. The app will close and reopen "
+            "automatically — please don't launch it manually until it does.",
+        )
         try:
             config.mark_pending_update(self._pending_update_version)
             launch_installer_and_exit(Path(installer_path))

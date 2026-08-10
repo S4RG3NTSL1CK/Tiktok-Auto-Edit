@@ -22,7 +22,11 @@ OutputBaseFilename=TiktokAutoEdit-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=yes
+; force (not the softer "yes"): the app can be a large bundle now (numpy/
+; scipy/opencv), so a soft close-request has more room to race the file
+; copy than it used to. force via Restart Manager instead of hoping our own
+; self.close() finishes in time.
+CloseApplications=force
 RestartApplications=no
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
