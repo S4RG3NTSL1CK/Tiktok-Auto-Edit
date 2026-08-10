@@ -149,14 +149,19 @@ class MainWindow(QMainWindow):
         music_form.addRow(self.instrumental_checkbox)
 
         self.energy_combo = QComboBox()
-        energy_labels = [("any", "Any"), ("verylow", "Very Low"), ("low", "Low"),
-                          ("medium", "Medium"), ("high", "High"), ("veryhigh", "Very High")]
+        energy_labels = [("auto", "Auto (match each clip's own energy)"), ("any", "Any"),
+                          ("verylow", "Very Low"), ("low", "Low"), ("medium", "Medium"),
+                          ("high", "High"), ("veryhigh", "Very High")]
         for value, label in energy_labels:
             self.energy_combo.addItem(label, value)
-        current_energy = self.cfg.get("music_energy", "any")
+        current_energy = self.cfg.get("music_energy", "auto")
         idx = self.energy_combo.findData(current_energy)
         self.energy_combo.setCurrentIndex(idx if idx >= 0 else 0)
         music_form.addRow("Energy / tempo:", self.energy_combo)
+
+        self.beat_sync_checkbox = QCheckBox("Beat-sync clip cuts to music (recommended)")
+        self.beat_sync_checkbox.setChecked(self.cfg.get("beat_sync_enabled", True))
+        music_form.addRow(self.beat_sync_checkbox)
 
         browse_row = QHBoxLayout()
         browse_music_btn = QPushButton("Browse & Listen...")
@@ -410,6 +415,7 @@ class MainWindow(QMainWindow):
             manual_track_path=self.selected_track_path or "",
             manual_track_attribution=self.selected_track.attribution_line() if self.selected_track else "",
             local_music_path=self.local_music_path or "",
+            beat_sync_enabled=self.beat_sync_checkbox.isChecked(),
         )
 
     def _start_generation(self):
@@ -418,7 +424,7 @@ class MainWindow(QMainWindow):
             return
         settings = self._collect_settings()
         provider_key = settings.freesound_api_key if settings.music_provider == "freesound" else settings.jamendo_api_key
-        if settings.music_enabled and not settings.manual_track_path and not provider_key:
+        if settings.music_enabled and settings.music_source == "auto" and not provider_key:
             QMessageBox.warning(
                 self, "Missing API key",
                 f"Music is enabled with provider '{settings.music_provider}' but no API key is "
@@ -442,6 +448,7 @@ class MainWindow(QMainWindow):
             "music_energy": settings.music_energy,
             "music_volume": settings.music_volume,
             "orig_volume": settings.orig_volume,
+            "beat_sync_enabled": settings.beat_sync_enabled,
             "output_dir": settings.output_dir,
         })
         config.save_config(persisted)

@@ -17,9 +17,10 @@ DEFAULTS = {
     "music_enabled": True,
     "music_tags": "",
     "music_instrumental_only": True,
-    "music_energy": "any",
+    "music_energy": "auto",
     "music_volume": 0.25,
     "orig_volume": 1.0,
+    "beat_sync_enabled": True,
 }
 
 

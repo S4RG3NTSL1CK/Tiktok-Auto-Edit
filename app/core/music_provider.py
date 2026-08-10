@@ -85,7 +85,7 @@ class FreesoundClient:
         query = spec.tags.strip() or random.choice(TAG_PRESETS)
         if spec.instrumental_only:
             query += " instrumental"
-        if spec.energy != "any":
+        if spec.energy not in ("any", "auto"):
             query += " " + _ENERGY_KEYWORDS.get(spec.energy, "")
 
         base_filter = (
@@ -161,7 +161,7 @@ class JamendoClient:
         }
         if spec.instrumental_only:
             params["vocalinstrumental"] = "instrumental"
-        if spec.energy != "any":
+        if spec.energy not in ("any", "auto"):
             params["speed"] = spec.energy
 
         tracks = self._search_once(params)

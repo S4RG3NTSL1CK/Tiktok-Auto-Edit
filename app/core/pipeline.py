@@ -3,8 +3,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import ffmpeg_utils
-from .audio_energy import compute_energy_curve
+from . import beat_align, ffmpeg_utils
+from .audio_energy import compute_energy_curve, energy_in_range
 from .highlight_selector import select_highlights
 from .music_provider import (
     MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
@@ -15,6 +15,18 @@ from .scene_detect import detect_scene_cuts
 
 class PipelineCancelled(Exception):
     pass
+
+
+def _bucket_energy(value: float) -> str:
+    if value < 0.2:
+        return "verylow"
+    if value < 0.4:
+        return "low"
+    if value < 0.6:
+        return "medium"
+    if value < 0.8:
+        return "high"
+    return "veryhigh"
 
 
 @dataclass
@@ -37,6 +49,7 @@ class PipelineSettings:
     manual_track_path: str = ""
     manual_track_attribution: str = ""
     local_music_path: str = ""
+    beat_sync_enabled: bool = True
 
 
 @dataclass
@@ -114,13 +127,19 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         cache_dir = default_cache_dir()
         used_track_keys = set()
         used_local_paths = set()
-        music_spec = MusicSpec(
-            tags=settings.music_tags,
-            instrumental_only=settings.music_instrumental_only,
-            energy=settings.music_energy,
-        )
+        beat_cache = {}
         results = []
         attributions = []
+
+        def get_beat_grid(music_file_path: str):
+            if music_file_path not in beat_cache:
+                beat_wav = tmp_dir / f"beatsrc_{len(beat_cache)}.wav"
+                try:
+                    ffmpeg_utils.extract_audio_wav(music_file_path, str(beat_wav))
+                    beat_cache[music_file_path] = beat_align.detect_beats(str(beat_wav))
+                except ffmpeg_utils.FFmpegError:
+                    beat_cache[music_file_path] = (None, None)
+            return beat_cache[music_file_path]
 
         total = len(windows)
         for i, window in enumerate(windows):
@@ -141,20 +160,41 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 attribution_line = f"Local file: {track_path.name}"
                 is_local_music = True
             elif music_client:
+                energy = settings.music_energy
+                if energy == "auto":
+                    mean_energy, _ = energy_in_range(times, values, window.start, window.end)
+                    energy = _bucket_energy(mean_energy)
+                clip_spec = MusicSpec(
+                    tags=settings.music_tags,
+                    instrumental_only=settings.music_instrumental_only,
+                    energy=energy,
+                )
                 try:
                     music_path, track = get_music_for_clip(
-                        music_client, window.duration, cache_dir, used_track_keys, music_spec,
+                        music_client, window.duration, cache_dir, used_track_keys, clip_spec,
                     )
                     attribution_line = track.attribution_line()
                 except MusicProviderError as exc:
                     attribution_line = f"(music skipped for this clip: {exc})"
 
+            clip_start, clip_duration = window.start, window.duration
+            if settings.beat_sync_enabled and music_path:
+                bpm, beat_times = get_beat_grid(str(music_path))
+                if beat_times is not None:
+                    new_start, new_duration = beat_align.align_window_to_beats(
+                        window.start, window.duration, beat_times, settings.min_len, settings.max_len,
+                    )
+                    new_start = max(0.0, min(new_start, info.duration))
+                    new_duration = min(new_duration, info.duration - new_start)
+                    if new_duration >= min(settings.min_len, 5.0):
+                        clip_start, clip_duration = new_start, new_duration
+
             out_path = output_dir / f"clip_{i + 1:02d}.mp4"
             ffmpeg_utils.export_clip(
                 video_path=video_path,
                 output_path=str(out_path),
-                start=window.start,
-                duration=window.duration,
+                start=clip_start,
+                duration=clip_duration,
                 width=info.width,
                 height=info.height,
                 aspect=settings.aspect,
@@ -165,8 +205,8 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
             results.append(ClipResult(
                 path=str(out_path),
-                start=window.start,
-                end=window.end,
+                start=clip_start,
+                end=clip_start + clip_duration,
                 track_attribution=attribution_line,
             ))
             if attribution_line and not is_local_music and not attribution_line.startswith("(music skipped"):

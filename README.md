@@ -28,6 +28,30 @@ Fully local, offline heuristic — no cloud video AI:
   and scene-cut density, then greedily picks the top non-overlapping windows,
   snapped to nearby scene cuts for clean edit points.
 
+## Video/music alignment
+
+Two things happen automatically to make the video and its music feel like
+they belong together, not just overlaid:
+
+- **Beat-sync (on by default):** once a track is chosen for a clip, the app
+  detects its beat grid (spectral-flux onset detection + autocorrelation
+  tempo estimate + phase-locked beat grid — hand-rolled on `numpy`/`scipy`,
+  deliberately not `librosa`, to avoid dragging `numba`/`llvmlite` into the
+  Windows build) and snaps that clip's start **and** end to the nearest
+  beats, within your min/max length range. Cuts land on the beat instead of
+  at an arbitrary sample. Toggle: **Beat-sync clip cuts to music**.
+- **Energy-matched auto music (default energy setting):** in Auto music
+  mode, each clip's own audio energy (already computed for clip selection)
+  is bucketed into very-low → very-high and used to bias that specific
+  clip's music search — a calm segment pulls calmer tracks, a high-energy
+  segment pulls higher-tempo ones, independently per clip. Set the Energy
+  dropdown to a fixed value instead of **Auto** to override this and force
+  the same energy level on every clip.
+
+Beat-sync applies no matter which music source you're using (Auto/Manual/
+Local). Energy-matching only applies in Auto mode — Manual and Local already
+lock in one specific track ahead of time, so there's nothing to match.
+
 ## Music
 
 Two royalty-free music providers, picked per run from the Music panel.

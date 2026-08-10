@@ -14,6 +14,8 @@ a = Analysis(
     hiddenimports=[
         'scenedetect',
         'scenedetect.detectors',
+        'scipy.signal',
+        'scipy.special._cdflib',
     ],
     hookspath=[],
     hooksconfig={},
