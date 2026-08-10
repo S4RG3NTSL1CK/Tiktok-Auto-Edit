@@ -48,15 +48,23 @@ NonCommercial or NoDerivatives restrictions. Any non-CC0 track requires
 attribution — the app writes an `ATTRIBUTIONS.txt` into your output folder
 listing every track that needs it. Keep it with the clips if you use them.
 
-**Two ways to pick music:**
+**Three ways to pick music** (mutually exclusive — picking one clears the others):
 - **Auto (default):** set genre/mood tags (e.g. "lofi chill", "epic
   cinematic"), instrumental-only (on by default, avoids clashing with
   talking), and energy/tempo. Each generated clip gets an independently
   picked matching track.
 - **Manual:** click **Browse & Listen...** in the Music panel to search
   either provider, preview tracks in-app before committing, and pick one
-  specific track. That exact track is then used on every clip in the batch
-  instead of auto-picking per clip. Click **Clear** to go back to auto mode.
+  specific track. That exact track is then used on every clip in the batch.
+- **Local:** click **Use Local File...** to apply one music file you already
+  have on disk to every clip, or **Use Local Folder...** to point at a folder
+  of tracks — each clip gets a different one picked from it, no repeats until
+  the folder's exhausted. No API key, no network call, works offline.
+  Supports `.mp3 .wav .m4a .flac .ogg .aac`. Local tracks are never written to
+  `ATTRIBUTIONS.txt` — the app makes no claim about their license, that's on
+  you to know since they're your own files.
+
+Click **Clear** next to whichever mode you used to go back to Auto.
 
 ## Running from source (Linux/Mac, or Windows dev setup)
 

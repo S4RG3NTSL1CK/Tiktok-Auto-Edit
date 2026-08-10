@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from .. import config
 from ..core.ffmpeg_utils import probe_video, FFmpegError
+from ..core.music_provider import resolve_local_tracks
 from ..core.pipeline import PipelineSettings
 from ..core.updater import launch_installer_and_exit
 from ..version import __version__
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.selected_track = None
         self.selected_track_path = None
+        self.local_music_path = None
         self.update_check_worker = None
         self.update_download_worker = None
 
@@ -168,6 +170,23 @@ class MainWindow(QMainWindow):
         self.selected_track_label = QLabel("No specific track selected — auto-picks per clip from tags above.")
         self.selected_track_label.setWordWrap(True)
         music_form.addRow(self.selected_track_label)
+
+        local_row = QHBoxLayout()
+        use_local_file_btn = QPushButton("Use Local File...")
+        use_local_file_btn.clicked.connect(self._use_local_file)
+        use_local_folder_btn = QPushButton("Use Local Folder...")
+        use_local_folder_btn.clicked.connect(self._use_local_folder)
+        self.clear_local_btn = QPushButton("Clear")
+        self.clear_local_btn.setEnabled(False)
+        self.clear_local_btn.clicked.connect(self._clear_local_music)
+        local_row.addWidget(use_local_file_btn)
+        local_row.addWidget(use_local_folder_btn)
+        local_row.addWidget(self.clear_local_btn)
+        music_form.addRow(local_row)
+
+        self.local_music_label = QLabel("No local music selected — you're responsible for the license of your own files.")
+        self.local_music_label.setWordWrap(True)
+        music_form.addRow(self.local_music_label)
 
         self.music_vol_slider = QSlider(Qt.Horizontal)
         self.music_vol_slider.setRange(0, 100)
@@ -313,6 +332,7 @@ class MainWindow(QMainWindow):
             )
             self.clear_track_btn.setEnabled(True)
             self.music_checkbox.setChecked(True)
+            self._clear_local_music()
 
     def _clear_selected_track(self):
         self.selected_track = None
@@ -320,8 +340,45 @@ class MainWindow(QMainWindow):
         self.selected_track_label.setText("No specific track selected — auto-picks per clip from tags above.")
         self.clear_track_btn.setEnabled(False)
 
+    def _use_local_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select a local music file", "",
+            "Audio files (*.mp3 *.wav *.m4a *.flac *.ogg *.aac)",
+        )
+        if not path:
+            return
+        self._set_local_music(path, f"Local file: {Path(path).name} — used on every generated clip.")
+
+    def _use_local_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Select a folder of local music files")
+        if not path:
+            return
+        tracks = resolve_local_tracks(path)
+        if not tracks:
+            QMessageBox.warning(self, "No audio files found", f"No supported audio files found in:\n{path}")
+            return
+        self._set_local_music(path, f"Local folder: {Path(path).name} ({len(tracks)} tracks) — one picked per clip.")
+
+    def _set_local_music(self, path: str, label_text: str):
+        self.local_music_path = path
+        self.local_music_label.setText(label_text)
+        self.clear_local_btn.setEnabled(True)
+        self.music_checkbox.setChecked(True)
+        self._clear_selected_track()
+
+    def _clear_local_music(self):
+        self.local_music_path = None
+        self.local_music_label.setText("No local music selected — you're responsible for the license of your own files.")
+        self.clear_local_btn.setEnabled(False)
+
     def _collect_settings(self) -> PipelineSettings:
         cfg = config.load_config()
+        if self.local_music_path:
+            music_source = "local"
+        elif self.selected_track_path:
+            music_source = "manual"
+        else:
+            music_source = "auto"
         return PipelineSettings(
             num_clips=self.num_clips_spin.value(),
             min_len=self.min_len_spin.value(),
@@ -336,9 +393,11 @@ class MainWindow(QMainWindow):
             output_dir=self.output_dir_edit.text().strip(),
             music_provider=self.music_provider_combo.currentText(),
             freesound_api_key=cfg.get("freesound_api_key", ""),
+            jamendo_api_key=cfg.get("jamendo_api_key", ""),
+            music_source=music_source,
             manual_track_path=self.selected_track_path or "",
             manual_track_attribution=self.selected_track.attribution_line() if self.selected_track else "",
-            jamendo_api_key=cfg.get("jamendo_api_key", ""),
+            local_music_path=self.local_music_path or "",
         )
 
     def _start_generation(self):

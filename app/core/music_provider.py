@@ -34,6 +34,8 @@ _ENERGY_KEYWORDS = {
 
 PROVIDERS = ["freesound", "jamendo"]
 
+LOCAL_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
+
 
 class MusicProviderError(RuntimeError):
     pass
@@ -233,6 +235,23 @@ def _jamendo_license(ccurl: str) -> str:
         code = ccurl.split(marker, 1)[1].split("/", 1)[0]
         return "CC-" + code.upper()
     return ccurl
+
+
+def resolve_local_tracks(path: str) -> list:
+    """Resolves a user-picked path to a list of local audio files: a single
+    file returns itself, a folder returns every audio file directly inside it
+    (non-recursive), sorted for stable ordering."""
+    p = Path(path)
+    if p.is_file():
+        return [p] if p.suffix.lower() in LOCAL_AUDIO_EXTENSIONS else []
+    if p.is_dir():
+        return sorted(f for f in p.iterdir() if f.is_file() and f.suffix.lower() in LOCAL_AUDIO_EXTENSIONS)
+    return []
+
+
+def pick_local_track(tracks: list, used_paths: set) -> Path:
+    pool = [t for t in tracks if str(t) not in used_paths] or tracks
+    return random.choice(pool)
 
 
 def get_client(provider: str, freesound_api_key: str, jamendo_api_key: str):

@@ -6,7 +6,10 @@ from pathlib import Path
 from . import ffmpeg_utils
 from .audio_energy import compute_energy_curve
 from .highlight_selector import select_highlights
-from .music_provider import MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip
+from .music_provider import (
+    MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
+    pick_local_track, resolve_local_tracks,
+)
 from .scene_detect import detect_scene_cuts
 
 
@@ -30,8 +33,10 @@ class PipelineSettings:
     music_provider: str = "freesound"
     freesound_api_key: str = ""
     jamendo_api_key: str = ""
+    music_source: str = "auto"  # "auto" | "manual" | "local"
     manual_track_path: str = ""
     manual_track_attribution: str = ""
+    local_music_path: str = ""
 
 
 @dataclass
@@ -52,10 +57,19 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         if progress_cb:
             progress_cb(pct, msg)
 
-    if settings.music_enabled and settings.manual_track_path and not Path(settings.manual_track_path).exists():
-        raise RuntimeError(
-            "The selected music track is no longer on disk. Re-pick it in the Music Browser."
-        )
+    local_tracks = []
+    if settings.music_enabled and settings.music_source == "manual":
+        if not settings.manual_track_path or not Path(settings.manual_track_path).exists():
+            raise RuntimeError(
+                "The selected music track is no longer on disk. Re-pick it in the Music Browser."
+            )
+    elif settings.music_enabled and settings.music_source == "local":
+        local_tracks = resolve_local_tracks(settings.local_music_path)
+        if not local_tracks:
+            raise RuntimeError(
+                f"No usable audio files found at '{settings.local_music_path}'. "
+                "Pick a local music file or folder in the Music panel."
+            )
 
     report(2, "Probing video...")
     info = ffmpeg_utils.probe_video(video_path)
@@ -92,13 +106,14 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         _check_cancel(cancel_event)
 
         music_client = None
-        if settings.music_enabled and not settings.manual_track_path:
+        if settings.music_enabled and settings.music_source == "auto":
             music_client = get_client(
                 settings.music_provider, settings.freesound_api_key, settings.jamendo_api_key,
             )
 
         cache_dir = default_cache_dir()
         used_track_keys = set()
+        used_local_paths = set()
         music_spec = MusicSpec(
             tags=settings.music_tags,
             instrumental_only=settings.music_instrumental_only,
@@ -115,9 +130,16 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
             music_path = None
             attribution_line = ""
-            if settings.music_enabled and settings.manual_track_path:
+            is_local_music = False
+            if settings.music_enabled and settings.music_source == "manual":
                 music_path = settings.manual_track_path
                 attribution_line = settings.manual_track_attribution
+            elif settings.music_enabled and settings.music_source == "local":
+                track_path = pick_local_track(local_tracks, used_local_paths)
+                used_local_paths.add(str(track_path))
+                music_path = track_path
+                attribution_line = f"Local file: {track_path.name}"
+                is_local_music = True
             elif music_client:
                 try:
                     music_path, track = get_music_for_clip(
@@ -147,7 +169,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 end=window.end,
                 track_attribution=attribution_line,
             ))
-            if attribution_line and not attribution_line.startswith("(music skipped"):
+            if attribution_line and not is_local_music and not attribution_line.startswith("(music skipped"):
                 attributions.append(f"{out_path.name}: {attribution_line}")
 
         if attributions:
