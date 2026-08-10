@@ -51,6 +51,7 @@ class PipelineSettings:
     local_music_path: str = ""
     beat_sync_enabled: bool = True
     four_k_60fps: bool = False
+    create_highlight_reel: bool = False
 
 
 @dataclass
@@ -226,6 +227,19 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 "Keep this file with your clips if any track below requires attribution "
                 "(any non-CC0 license).\n\n" + "\n".join(attributions) + "\n"
             )
+
+        if settings.create_highlight_reel and results:
+            report(97, "Stitching highlight reel...")
+            reel_path = output_dir / "highlight_reel.mp4"
+            reel_clips = [(r.path, r.end - r.start) for r in results]
+            ffmpeg_utils.stitch_clips_with_crossfade(reel_clips, str(reel_path))
+            reel_duration = sum(d for _, d in reel_clips) - max(len(reel_clips) - 1, 0) * 0.4
+            results.append(ClipResult(
+                path=str(reel_path),
+                start=0.0,
+                end=reel_duration,
+                track_attribution=f"Full highlight reel — all {len(reel_clips)} clips stitched with crossfades",
+            ))
 
         report(100, "Done.")
         return results

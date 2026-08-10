@@ -28,6 +28,18 @@ Fully local, offline heuristic — no cloud video AI:
   and scene-cut density, then greedily picks the top non-overlapping windows,
   snapped to nearby scene cuts for clean edit points.
 
+## Highlight reel
+
+Optional checkbox: **Also stitch all clips into one highlight reel**, off by
+default. When on, every generated clip still gets its own file as normal
+(`clip_01.mp4`, etc.) — this adds one more file, `highlight_reel.mp4`, all
+of them concatenated in chronological order with a short crossfade (video
+and audio) at each join instead of a hard cut. If clips have different
+background tracks (Auto music mode can pick a different track per clip),
+the audio crossfade smooths the transition between songs rather than
+cutting abruptly; for one continuous unbroken track throughout, pick Manual
+or Local (single file) music mode instead of Auto.
+
 ## Video/music alignment
 
 Two things happen automatically to make the video and its music feel like

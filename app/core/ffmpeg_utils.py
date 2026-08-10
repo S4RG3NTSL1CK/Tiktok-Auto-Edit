@@ -147,9 +147,53 @@ def export_clip(
 
     args += [
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
         "-movflags", "+faststart",
         output_path,
     ]
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    run_ffmpeg(args)
+
+
+def stitch_clips_with_crossfade(clips: list, output_path: str, transition_duration: float = 0.4) -> None:
+    """Concatenates already-rendered clips (same resolution/fps/audio format,
+    as produced by export_clip) into one video, crossfading video and audio
+    at each join instead of hard-cutting. `clips` is a list of
+    (path: str, duration: float)."""
+    if not clips:
+        raise ValueError("No clips to stitch")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if len(clips) == 1:
+        run_ffmpeg(["-i", clips[0][0], "-c", "copy", output_path])
+        return
+
+    xfade_dur = min(transition_duration, max(min(d for _, d in clips) / 2, 0.1))
+
+    args = []
+    for path, _ in clips:
+        args += ["-i", path]
+
+    filter_parts = []
+    v_label, a_label = "0:v", "0:a"
+    cumulative = clips[0][1]
+    for i in range(1, len(clips)):
+        offset = cumulative - xfade_dur
+        next_v, next_a = f"v{i}", f"a{i}"
+        filter_parts.append(
+            f"[{v_label}][{i}:v]xfade=transition=fade:duration={xfade_dur:.3f}:offset={offset:.3f}[{next_v}]"
+        )
+        filter_parts.append(f"[{a_label}][{i}:a]acrossfade=d={xfade_dur:.3f}[{next_a}]")
+        v_label, a_label = next_v, next_a
+        cumulative += clips[i][1] - xfade_dur
+
+    args += [
+        "-filter_complex", ";".join(filter_parts),
+        "-map", f"[{v_label}]", "-map", f"[{a_label}]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        output_path,
+    ]
     run_ffmpeg(args)

@@ -22,6 +22,7 @@ DEFAULTS = {
     "orig_volume": 1.0,
     "beat_sync_enabled": True,
     "four_k_60fps": False,
+    "create_highlight_reel": False,
 }
 
 

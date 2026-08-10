@@ -126,6 +126,15 @@ class MainWindow(QMainWindow):
         )
         form.addRow(self.four_k_checkbox)
 
+        self.highlight_reel_checkbox = QCheckBox("Also stitch all clips into one highlight reel")
+        self.highlight_reel_checkbox.setChecked(self.cfg.get("create_highlight_reel", False))
+        self.highlight_reel_checkbox.setToolTip(
+            "Concatenates every generated clip into a single highlight_reel.mp4, in chronological "
+            "order, with a short crossfade at each join instead of a hard cut. The individual clip "
+            "files are still produced as normal."
+        )
+        form.addRow(self.highlight_reel_checkbox)
+
         self.output_dir_edit = QLineEdit(self.cfg["output_dir"])
         out_browse_btn = QPushButton("Browse...")
         out_browse_btn.clicked.connect(self._browse_output_dir)
@@ -425,6 +434,7 @@ class MainWindow(QMainWindow):
             local_music_path=self.local_music_path or "",
             beat_sync_enabled=self.beat_sync_checkbox.isChecked(),
             four_k_60fps=self.four_k_checkbox.isChecked(),
+            create_highlight_reel=self.highlight_reel_checkbox.isChecked(),
         )
 
     def _start_generation(self):
@@ -451,6 +461,7 @@ class MainWindow(QMainWindow):
             "max_len": settings.max_len,
             "aspect": settings.aspect,
             "four_k_60fps": settings.four_k_60fps,
+            "create_highlight_reel": settings.create_highlight_reel,
             "music_enabled": settings.music_enabled,
             "music_provider": settings.music_provider,
             "music_tags": settings.music_tags,
