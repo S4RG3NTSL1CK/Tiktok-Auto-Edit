@@ -6,7 +6,7 @@ from pathlib import Path
 from . import ffmpeg_utils
 from .audio_energy import compute_energy_curve
 from .highlight_selector import select_highlights
-from .music_provider import MusicProviderError, get_client, get_music_for_clip
+from .music_provider import MusicProviderError, MusicSpec, get_client, get_music_for_clip
 from .scene_detect import detect_scene_cuts
 
 
@@ -21,7 +21,9 @@ class PipelineSettings:
     max_len: float = 45
     aspect: str = "9:16"
     music_enabled: bool = True
-    music_mood: str = ""
+    music_tags: str = ""
+    music_instrumental_only: bool = True
+    music_energy: str = "any"
     music_volume: float = 0.25
     orig_volume: float = 1.0
     output_dir: str = ""
@@ -90,6 +92,11 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
         cache_dir = Path(tempfile.gettempdir()) / "tiktok_auto_edit_music_cache"
         used_track_keys = set()
+        music_spec = MusicSpec(
+            tags=settings.music_tags,
+            instrumental_only=settings.music_instrumental_only,
+            energy=settings.music_energy,
+        )
         results = []
         attributions = []
 
@@ -104,7 +111,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             if music_client:
                 try:
                     music_path, track = get_music_for_clip(
-                        music_client, window.duration, cache_dir, used_track_keys, settings.music_mood,
+                        music_client, window.duration, cache_dir, used_track_keys, music_spec,
                     )
                     attribution_line = track.attribution_line()
                 except MusicProviderError as exc:

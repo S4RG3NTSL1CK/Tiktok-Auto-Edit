@@ -128,9 +128,23 @@ class MainWindow(QMainWindow):
         self.music_provider_combo.setCurrentText(self.cfg.get("music_provider", "freesound"))
         music_form.addRow("Music provider:", self.music_provider_combo)
 
-        self.mood_edit = QLineEdit(self.cfg["music_mood"])
-        self.mood_edit.setPlaceholderText("Leave blank for a rotating mix of moods")
-        music_form.addRow("Mood / keyword:", self.mood_edit)
+        self.tags_edit = QLineEdit(self.cfg.get("music_tags", ""))
+        self.tags_edit.setPlaceholderText("e.g. lofi chill, cinematic epic, upbeat pop — blank rotates presets")
+        music_form.addRow("Genre / mood tags:", self.tags_edit)
+
+        self.instrumental_checkbox = QCheckBox("Instrumental only (avoids clashing with talking)")
+        self.instrumental_checkbox.setChecked(self.cfg.get("music_instrumental_only", True))
+        music_form.addRow(self.instrumental_checkbox)
+
+        self.energy_combo = QComboBox()
+        energy_labels = [("any", "Any"), ("verylow", "Very Low"), ("low", "Low"),
+                          ("medium", "Medium"), ("high", "High"), ("veryhigh", "Very High")]
+        for value, label in energy_labels:
+            self.energy_combo.addItem(label, value)
+        current_energy = self.cfg.get("music_energy", "any")
+        idx = self.energy_combo.findData(current_energy)
+        self.energy_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        music_form.addRow("Energy / tempo:", self.energy_combo)
 
         self.music_vol_slider = QSlider(Qt.Horizontal)
         self.music_vol_slider.setRange(0, 100)
@@ -208,7 +222,9 @@ class MainWindow(QMainWindow):
             max_len=max(self.max_len_spin.value(), self.min_len_spin.value()),
             aspect=self.aspect_combo.currentText(),
             music_enabled=self.music_checkbox.isChecked(),
-            music_mood=self.mood_edit.text().strip(),
+            music_tags=self.tags_edit.text().strip(),
+            music_instrumental_only=self.instrumental_checkbox.isChecked(),
+            music_energy=self.energy_combo.currentData(),
             music_volume=self.music_vol_slider.value() / 100,
             orig_volume=self.orig_vol_slider.value() / 100,
             output_dir=self.output_dir_edit.text().strip(),
@@ -242,7 +258,9 @@ class MainWindow(QMainWindow):
             "aspect": settings.aspect,
             "music_enabled": settings.music_enabled,
             "music_provider": settings.music_provider,
-            "music_mood": settings.music_mood,
+            "music_tags": settings.music_tags,
+            "music_instrumental_only": settings.music_instrumental_only,
+            "music_energy": settings.music_energy,
             "music_volume": settings.music_volume,
             "orig_volume": settings.orig_volume,
             "output_dir": settings.output_dir,

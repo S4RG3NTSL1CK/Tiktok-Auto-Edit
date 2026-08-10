@@ -15,7 +15,9 @@ DEFAULTS = {
     "max_len": 45,
     "aspect": "9:16",
     "music_enabled": True,
-    "music_mood": "",
+    "music_tags": "",
+    "music_instrumental_only": True,
+    "music_energy": "any",
     "music_volume": 0.25,
     "orig_volume": 1.0,
 }
