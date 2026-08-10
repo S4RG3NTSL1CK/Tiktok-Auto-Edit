@@ -127,6 +127,42 @@ listing every track that needs it. Keep it with the clips if you use them.
 
 Click **Clear** next to whichever mode you used to go back to Auto.
 
+## Copyright check
+
+**Check Copyright** button under the results list, enabled once a clip is
+selected. Extracts that clip's full mixed audio and checks it against
+[AudD](https://audd.io)'s commercial-music fingerprint database (160M+
+tracks) — reports a match with title/artist/album if found.
+
+**What this actually is and isn't:** there is no public API — from TikTok or
+anyone — that tells you what TikTok's own (internal, non-public) mute/
+copyright-detection system will do with a specific clip. This is a
+best-effort proxy signal against a large but different database. A clean
+result is a good sign, not a guarantee; a match is a real warning sign
+worth investigating, not a certainty of what TikTok specifically will flag.
+Needs a free AudD API token (300 free checks, then ~$2–5/1000) in Settings.
+
+## TikTok upload
+
+**TikTok Account** button (top bar) to connect your account, then **Upload
+to TikTok (draft)** under the results list once a clip is selected.
+
+- Register your own app at
+  [developers.tiktok.com/apps](https://developers.tiktok.com/apps), add the
+  **Login Kit** and **Content Posting API** products, and set the redirect
+  URI to exactly `http://127.0.0.1:58642/callback` (shown in the app too —
+  TikTok's desktop OAuth flow supports a localhost redirect, unlike most of
+  their other flows). Paste the Client Key and Client Secret into Settings.
+- Login opens your browser to TikTok, then hands control back to the app
+  automatically via a local callback — no copy-pasting a code.
+- **Uploads land as a draft in your TikTok inbox, not a public post.** This
+  app is unaudited (TikTok's full app-review process is a separate,
+  business-verification-heavy track, out of scope for personal use) — draft
+  mode sidesteps that entirely rather than pretending to control visibility
+  it can't. Open TikTok yourself to review, edit, and actually publish.
+- Tokens are stored locally in your OS config directory alongside your other
+  API keys, refreshed automatically when they expire.
+
 ## Running from source (Linux/Mac, or Windows dev setup)
 
 The Windows install above is the normal path for actually using the app. Run
@@ -163,6 +199,9 @@ python main.py
    **Browse & Listen...** to pick one specific track.
 4. Click **Generate Clips**. Output lands in the chosen folder as
    `clip_01.mp4`, `clip_02.mp4`, etc.
+5. Optionally select a clip and click **Check Copyright** before posting it
+   anywhere, or **Upload to TikTok (draft)** to send it to your TikTok inbox
+   (connect your account first via the **TikTok Account** button).
 
 ## Releasing a new Windows build
 

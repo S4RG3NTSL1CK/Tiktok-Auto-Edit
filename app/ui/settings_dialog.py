@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import config
+from ..core.tiktok_client import REDIRECT_URI
 
 
 class SettingsDialog(QDialog):
@@ -21,7 +22,9 @@ class SettingsDialog(QDialog):
             "the API key, not OAuth). Get a free Jamendo client_id at "
             '<a href="https://devportal.jamendo.com">devportal.jamendo.com</a> '
             "(create an application, copy its Client ID). You only need a key for "
-            "whichever provider you plan to use."
+            "whichever provider you plan to use. Get a free AudD API token (300 free "
+            'checks) at <a href="https://dashboard.audd.io/">dashboard.audd.io</a> '
+            "for the copyright check button."
         )
         info.setOpenExternalLinks(True)
         info.setWordWrap(True)
@@ -35,6 +38,30 @@ class SettingsDialog(QDialog):
         self.jamendo_key_edit = QLineEdit(self._cfg.get("jamendo_api_key", ""))
         self.jamendo_key_edit.setPlaceholderText("Jamendo client_id")
         form.addRow("Jamendo API key:", self.jamendo_key_edit)
+
+        self.audd_key_edit = QLineEdit(self._cfg.get("audd_api_token", ""))
+        self.audd_key_edit.setPlaceholderText("AudD API token")
+        form.addRow("AudD API token:", self.audd_key_edit)
+
+        tiktok_info = QLabel(
+            'Register an app at <a href="https://developers.tiktok.com/apps">'
+            "developers.tiktok.com/apps</a>, add the <b>Login Kit</b> and "
+            "<b>Content Posting API</b> products, and set the redirect URI to "
+            f"exactly:<br><b>{REDIRECT_URI}</b><br>Then paste the Client Key and "
+            "Client Secret below. Uploads land as a draft in your TikTok inbox for "
+            "you to review — an unaudited app can't post publicly on its own."
+        )
+        tiktok_info.setOpenExternalLinks(True)
+        tiktok_info.setWordWrap(True)
+        layout.addWidget(tiktok_info)
+
+        self.tiktok_key_edit = QLineEdit(self._cfg.get("tiktok_client_key", ""))
+        self.tiktok_key_edit.setPlaceholderText("TikTok Client Key")
+        form.addRow("TikTok Client Key:", self.tiktok_key_edit)
+
+        self.tiktok_secret_edit = QLineEdit(self._cfg.get("tiktok_client_secret", ""))
+        self.tiktok_secret_edit.setPlaceholderText("TikTok Client Secret")
+        form.addRow("TikTok Client Secret:", self.tiktok_secret_edit)
 
         output_row = QHBoxLayout()
         self.output_dir_edit = QLineEdit(self._cfg.get("output_dir", ""))
@@ -59,6 +86,9 @@ class SettingsDialog(QDialog):
     def _save(self):
         self._cfg["freesound_api_key"] = self.api_key_edit.text().strip()
         self._cfg["jamendo_api_key"] = self.jamendo_key_edit.text().strip()
+        self._cfg["audd_api_token"] = self.audd_key_edit.text().strip()
+        self._cfg["tiktok_client_key"] = self.tiktok_key_edit.text().strip()
+        self._cfg["tiktok_client_secret"] = self.tiktok_secret_edit.text().strip()
         self._cfg["output_dir"] = self.output_dir_edit.text().strip()
         config.save_config(self._cfg)
         self.accept()

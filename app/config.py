@@ -23,6 +23,14 @@ DEFAULTS = {
     "beat_sync_enabled": True,
     "four_k_60fps": False,
     "create_highlight_reel": False,
+    "audd_api_token": "",
+    "tiktok_client_key": "",
+    "tiktok_client_secret": "",
+    "tiktok_access_token": "",
+    "tiktok_refresh_token": "",
+    "tiktok_open_id": "",
+    "tiktok_token_expires_at": 0,
+    "tiktok_display_name": "",
 }
 
 

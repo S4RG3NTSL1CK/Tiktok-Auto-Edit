@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -16,11 +17,15 @@ from .. import config
 from ..core.ffmpeg_utils import probe_video, FFmpegError
 from ..core.music_provider import resolve_local_tracks
 from ..core.pipeline import PipelineSettings
+from ..core.tiktok_client import TikTokError, refresh_access_token
 from ..core.updater import launch_installer_and_exit, versions_equal
 from ..version import __version__
 from .music_browser_dialog import MusicBrowserDialog
 from .settings_dialog import SettingsDialog
-from .workers import PipelineWorker, UpdateCheckWorker, UpdateDownloadWorker
+from .tiktok_dialog import TikTokAccountDialog
+from .workers import (
+    CopyrightCheckWorker, PipelineWorker, TikTokUploadWorker, UpdateCheckWorker, UpdateDownloadWorker,
+)
 
 
 class DropArea(QLabel):
@@ -64,6 +69,8 @@ class MainWindow(QMainWindow):
         self.update_check_worker = None
         self.update_download_worker = None
         self._pending_update_version = None
+        self.copyright_check_worker = None
+        self.tiktok_upload_worker = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -73,6 +80,9 @@ class MainWindow(QMainWindow):
         title = QLabel("<h2>Tiktok Auto Edit</h2>")
         top_bar.addWidget(title)
         top_bar.addStretch()
+        tiktok_account_btn = QPushButton("TikTok Account")
+        tiktok_account_btn.clicked.connect(self._open_tiktok_account)
+        top_bar.addWidget(tiktok_account_btn)
         settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self._open_settings)
         top_bar.addWidget(settings_btn)
@@ -246,7 +256,30 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.results_list)
         layout.addWidget(splitter, stretch=1)
 
+        results_action_row = QHBoxLayout()
+        self.copyright_check_btn = QPushButton("Check Copyright")
+        self.copyright_check_btn.setEnabled(False)
+        self.copyright_check_btn.setToolTip(
+            "Checks the selected clip's audio against AudD's commercial-music database. "
+            "This is a best-effort proxy, not a guarantee of what TikTok's own detection will do."
+        )
+        self.copyright_check_btn.clicked.connect(self._check_copyright_selected)
+        results_action_row.addWidget(self.copyright_check_btn)
+
+        self.tiktok_upload_btn = QPushButton("Upload to TikTok (draft)")
+        self.tiktok_upload_btn.setEnabled(False)
+        self.tiktok_upload_btn.setToolTip(
+            "Uploads the selected clip to your connected TikTok account's inbox as a draft "
+            "for you to review and publish yourself."
+        )
+        self.tiktok_upload_btn.clicked.connect(self._upload_selected_to_tiktok)
+        results_action_row.addWidget(self.tiktok_upload_btn)
+
+        results_action_row.addStretch()
+        layout.addLayout(results_action_row)
+
         self.results_list.itemDoubleClicked.connect(self._open_result_item)
+        self.results_list.currentItemChanged.connect(self._on_result_selection_changed)
 
         self._notify_if_just_updated()
         self._check_for_update_in_background()
@@ -332,7 +365,10 @@ class MainWindow(QMainWindow):
             self.worker.cancel()
             self.worker.wait(15000)
 
-        for worker in (self.update_check_worker, self.update_download_worker):
+        for worker in (
+            self.update_check_worker, self.update_download_worker,
+            self.copyright_check_worker, self.tiktok_upload_worker,
+        ):
             if worker is not None and worker.isRunning():
                 worker.wait(5000)
         super().closeEvent(event)
@@ -342,6 +378,11 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self.cfg = config.load_config()
             self.output_dir_edit.setText(self.cfg["output_dir"])
+
+    def _open_tiktok_account(self):
+        dlg = TikTokAccountDialog(self)
+        dlg.exec()
+        self._on_result_selection_changed(self.results_list.currentItem(), None)
 
     def _browse_video(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select video", "", "MP4 videos (*.mp4)")
@@ -547,3 +588,110 @@ class MainWindow(QMainWindow):
         path = item.data(Qt.UserRole)
         if path:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
+
+    def _on_result_selection_changed(self, current, _previous):
+        self.copyright_check_btn.setEnabled(current is not None)
+        cfg = config.load_config()
+        self.tiktok_upload_btn.setEnabled(current is not None and bool(cfg.get("tiktok_open_id", "")))
+
+    def _check_copyright_selected(self):
+        item = self.results_list.currentItem()
+        if not item:
+            return
+        clip_path = item.data(Qt.UserRole)
+        cfg = config.load_config()
+        api_token = cfg.get("audd_api_token", "")
+        if not api_token:
+            QMessageBox.warning(
+                self, "Missing API key",
+                "No AudD API token configured. Add one in Settings first.",
+            )
+            return
+
+        self.copyright_check_btn.setEnabled(False)
+        self.copyright_check_btn.setText("Checking...")
+        self.copyright_check_worker = CopyrightCheckWorker(clip_path, api_token, parent=self)
+        self.copyright_check_worker.finished_ok.connect(self._on_copyright_check_done)
+        self.copyright_check_worker.failed.connect(self._on_copyright_check_failed)
+        self.copyright_check_worker.start()
+
+    def _on_copyright_check_done(self, match):
+        self.copyright_check_btn.setEnabled(True)
+        self.copyright_check_btn.setText("Check Copyright")
+        if match is None:
+            QMessageBox.information(
+                self, "Copyright check",
+                "No commercial match found in AudD's database. This is a good sign, but not a "
+                "guarantee — TikTok's own detection system is separate and not publicly checkable.",
+            )
+        else:
+            QMessageBox.warning(
+                self, "Possible copyright match",
+                f"This clip's audio matches a known commercial track:\n\n{match.summary()}\n\n"
+                "This could get muted or claimed on TikTok. This is a best-effort check against "
+                "AudD's database, not TikTok's own system, so treat it as a warning sign to "
+                "investigate rather than a certainty.",
+            )
+
+    def _on_copyright_check_failed(self, message: str):
+        self.copyright_check_btn.setEnabled(True)
+        self.copyright_check_btn.setText("Check Copyright")
+        QMessageBox.warning(self, "Copyright check failed", message)
+
+    def _get_valid_tiktok_access_token(self):
+        cfg = config.load_config()
+        access_token = cfg.get("tiktok_access_token", "")
+        if not access_token:
+            return None
+        if time.time() < cfg.get("tiktok_token_expires_at", 0):
+            return access_token
+        try:
+            tokens = refresh_access_token(
+                cfg.get("tiktok_client_key", ""), cfg.get("tiktok_client_secret", ""),
+                cfg.get("tiktok_refresh_token", ""),
+            )
+        except TikTokError as exc:
+            QMessageBox.warning(
+                self, "TikTok session expired",
+                f"Could not refresh your TikTok login: {exc}\n\nReconnect via TikTok Account.",
+            )
+            return None
+        cfg["tiktok_access_token"] = tokens.access_token
+        cfg["tiktok_refresh_token"] = tokens.refresh_token
+        cfg["tiktok_token_expires_at"] = tokens.expires_at
+        config.save_config(cfg)
+        return tokens.access_token
+
+    def _upload_selected_to_tiktok(self):
+        item = self.results_list.currentItem()
+        if not item:
+            return
+        clip_path = item.data(Qt.UserRole)
+        access_token = self._get_valid_tiktok_access_token()
+        if not access_token:
+            QMessageBox.warning(
+                self, "Not connected",
+                "Connect your TikTok account first via the TikTok Account button.",
+            )
+            return
+
+        self.tiktok_upload_btn.setEnabled(False)
+        self.tiktok_upload_btn.setText("Uploading...")
+        self.tiktok_upload_worker = TikTokUploadWorker(access_token, clip_path, parent=self)
+        self.tiktok_upload_worker.finished_ok.connect(self._on_tiktok_upload_done)
+        self.tiktok_upload_worker.failed.connect(self._on_tiktok_upload_failed)
+        self.tiktok_upload_worker.start()
+
+    def _on_tiktok_upload_done(self, publish_id: str):
+        self.tiktok_upload_btn.setEnabled(True)
+        self.tiktok_upload_btn.setText("Upload to TikTok (draft)")
+        QMessageBox.information(
+            self, "Uploaded to TikTok",
+            "Sent to your TikTok inbox as a draft. Open the TikTok app to review, edit, and "
+            f"publish it yourself.\n\nPublish ID: {publish_id}",
+        )
+
+    def _on_tiktok_upload_failed(self, message: str):
+        self.tiktok_upload_btn.setEnabled(True)
+        self.tiktok_upload_btn.setText("Upload to TikTok (draft)")
+        QMessageBox.warning(self, "TikTok upload failed", message)
