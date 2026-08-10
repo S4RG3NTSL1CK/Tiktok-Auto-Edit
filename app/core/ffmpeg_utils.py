@@ -146,7 +146,7 @@ def export_clip(
         ]
 
     args += [
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
         "-movflags", "+faststart",
         output_path,
@@ -166,7 +166,7 @@ def stitch_clips_with_crossfade(clips: list, output_path: str, transition_durati
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     if len(clips) == 1:
-        run_ffmpeg(["-i", clips[0][0], "-c", "copy", output_path])
+        run_ffmpeg(["-i", clips[0][0], "-c", "copy", "-movflags", "+faststart", output_path])
         return
 
     xfade_dur = min(transition_duration, max(min(d for _, d in clips) / 2, 0.1))
@@ -191,8 +191,8 @@ def stitch_clips_with_crossfade(clips: list, output_path: str, transition_durati
     args += [
         "-filter_complex", ";".join(filter_parts),
         "-map", f"[{v_label}]", "-map", f"[{a_label}]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
         "-movflags", "+faststart",
         output_path,
     ]
