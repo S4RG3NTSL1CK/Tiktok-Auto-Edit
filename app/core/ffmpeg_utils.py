@@ -54,29 +54,52 @@ def extract_audio_wav(video_path: str, out_wav_path: str, sample_rate: int = 220
     ])
 
 
-def crop_filter_for_aspect(width: int, height: int, aspect: str):
+def crop_dimensions_for_aspect(width: int, height: int, aspect: str):
+    """Returns (crop_w, crop_h) — the frame size after cropping to `aspect`,
+    before any scaling. `aspect == "original"` returns the source size
+    unchanged (no crop applied)."""
     if aspect == "original":
-        return None
+        return width, height
     target_ratio = 9 / 16 if aspect == "9:16" else 1.0
     current_ratio = width / height
     if current_ratio > target_ratio:
         new_w = int(round(height * target_ratio))
         new_w -= new_w % 2
-        x = (width - new_w) // 2
-        return f"crop={new_w}:{height}:{x}:0"
+        return new_w, height
     else:
         new_h = int(round(width / target_ratio))
         new_h -= new_h % 2
-        y = (height - new_h) // 2
-        return f"crop={width}:{new_h}:0:{y}"
+        return width, new_h
 
 
-def scale_target_for_aspect(aspect: str) -> str:
+def crop_filter_for_aspect(width: int, height: int, aspect: str):
+    if aspect == "original":
+        return None
+    crop_w, crop_h = crop_dimensions_for_aspect(width, height, aspect)
+    x = (width - crop_w) // 2
+    y = (height - crop_h) // 2
+    return f"crop={crop_w}:{crop_h}:{x}:{y}"
+
+
+def scale_target_for_aspect(aspect: str, width: int, height: int, four_k: bool = False) -> str:
     if aspect == "9:16":
-        return "scale=1080:1920"
+        return "scale=2160:3840" if four_k else "scale=1080:1920"
     if aspect == "1:1":
-        return "scale=1080:1080"
-    return "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+        return "scale=2160:2160" if four_k else "scale=1080:1080"
+    # original: preserve source aspect ratio, just cap the long edge
+    if not four_k:
+        return "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    return "scale=3840:-2" if width >= height else "scale=-2:3840"
+
+
+def is_upscale(width: int, height: int, aspect: str, four_k: bool) -> bool:
+    """True if a four_k export would be stretching source pixels rather than
+    reflecting genuine source detail — i.e. the cropped source is smaller
+    than the 4K target in its shorter dimension."""
+    if not four_k:
+        return False
+    crop_w, crop_h = crop_dimensions_for_aspect(width, height, aspect)
+    return min(crop_w, crop_h) < 2160
 
 
 def export_clip(
@@ -90,10 +113,14 @@ def export_clip(
     music_path: str = None,
     music_volume: float = 0.25,
     orig_volume: float = 1.0,
+    four_k_60fps: bool = False,
 ) -> None:
     crop = crop_filter_for_aspect(width, height, aspect)
-    scale = scale_target_for_aspect(aspect)
-    video_chain = f"[0:v]{crop},{scale},setsar=1[v]" if crop else f"[0:v]{scale},setsar=1[v]"
+    scale = scale_target_for_aspect(aspect, width, height, four_k_60fps)
+    filters = [f for f in (crop, scale, "setsar=1") if f]
+    if four_k_60fps:
+        filters.append("fps=60")
+    video_chain = f"[0:v]{','.join(filters)}[v]"
 
     args = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", video_path]
 

@@ -118,6 +118,14 @@ class MainWindow(QMainWindow):
         self.aspect_combo.setCurrentText(self.cfg["aspect"])
         form.addRow("Aspect ratio:", self.aspect_combo)
 
+        self.four_k_checkbox = QCheckBox("Export at 4K / 60 FPS (much larger files, much slower to render)")
+        self.four_k_checkbox.setChecked(self.cfg.get("four_k_60fps", False))
+        self.four_k_checkbox.setToolTip(
+            "If your source video isn't already near 4K resolution, this upscales rather than "
+            "adding real detail — the app will warn you in the log when that happens."
+        )
+        form.addRow(self.four_k_checkbox)
+
         self.output_dir_edit = QLineEdit(self.cfg["output_dir"])
         out_browse_btn = QPushButton("Browse...")
         out_browse_btn.clicked.connect(self._browse_output_dir)
@@ -416,6 +424,7 @@ class MainWindow(QMainWindow):
             manual_track_attribution=self.selected_track.attribution_line() if self.selected_track else "",
             local_music_path=self.local_music_path or "",
             beat_sync_enabled=self.beat_sync_checkbox.isChecked(),
+            four_k_60fps=self.four_k_checkbox.isChecked(),
         )
 
     def _start_generation(self):
@@ -441,6 +450,7 @@ class MainWindow(QMainWindow):
             "min_len": settings.min_len,
             "max_len": settings.max_len,
             "aspect": settings.aspect,
+            "four_k_60fps": settings.four_k_60fps,
             "music_enabled": settings.music_enabled,
             "music_provider": settings.music_provider,
             "music_tags": settings.music_tags,

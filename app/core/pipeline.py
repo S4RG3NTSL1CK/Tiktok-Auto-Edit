@@ -50,6 +50,7 @@ class PipelineSettings:
     manual_track_attribution: str = ""
     local_music_path: str = ""
     beat_sync_enabled: bool = True
+    four_k_60fps: bool = False
 
 
 @dataclass
@@ -87,6 +88,12 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
     report(2, "Probing video...")
     info = ffmpeg_utils.probe_video(video_path)
     _check_cancel(cancel_event)
+
+    if settings.four_k_60fps and ffmpeg_utils.is_upscale(info.width, info.height, settings.aspect, True):
+        report(3, (
+            f"Note: source is {info.width}x{info.height} — after cropping to {settings.aspect}, "
+            "4K output will be upscaled, not genuinely higher detail."
+        ))
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="tiktok_auto_edit_"))
     output_dir = Path(settings.output_dir)
@@ -201,6 +208,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 music_path=str(music_path) if music_path else None,
                 music_volume=settings.music_volume,
                 orig_volume=settings.orig_volume,
+                four_k_60fps=settings.four_k_60fps,
             )
 
             results.append(ClipResult(

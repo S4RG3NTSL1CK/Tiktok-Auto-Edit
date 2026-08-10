@@ -52,6 +52,27 @@ Beat-sync applies no matter which music source you're using (Auto/Manual/
 Local). Energy-matching only applies in Auto mode — Manual and Local already
 lock in one specific track ahead of time, so there's nothing to match.
 
+## 4K / 60 FPS export
+
+Optional checkbox in Clip settings, off by default. Two things worth knowing
+before you turn it on:
+
+- **Upscaling isn't extra detail.** If your source video isn't already
+  near 4K, this stretches the same pixels into a bigger frame — it doesn't
+  invent new detail. Cropping landscape footage down to vertical 9:16 keeps
+  only the center slice, so even a genuinely 4K landscape source usually
+  ends up upscaled once cropped vertical. The app checks this per-run and
+  logs a note when it's about to happen — check the log, not just the
+  checkbox.
+- **60fps is standard frame-rate conversion, not motion interpolation.**
+  Frames are resampled onto a 60fps timeline; the app does not generate new
+  in-between frames via motion estimation (`minterpolate` in ffmpeg terms).
+  That keeps renders fast and avoids interpolation artifacts (warping around
+  fast motion, the "soap opera effect"), at the cost of not producing truly
+  fluid new motion from a lower-fps source.
+- **Expect roughly 8x the encode work** (4x pixels × 2x frame rate) versus
+  the 1080p30 default, and files several times larger.
+
 ## Music
 
 Two royalty-free music providers, picked per run from the Music panel.

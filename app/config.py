@@ -21,6 +21,7 @@ DEFAULTS = {
     "music_volume": 0.25,
     "orig_volume": 1.0,
     "beat_sync_enabled": True,
+    "four_k_60fps": False,
 }
 
 
