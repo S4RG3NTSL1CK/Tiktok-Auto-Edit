@@ -53,3 +53,28 @@ def music_cache_dir() -> Path:
     d = Path(user_config_dir(APP_NAME)) / "music_cache"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _update_marker_path() -> Path:
+    return Path(user_config_dir(APP_NAME)) / "update_pending.json"
+
+
+def mark_pending_update(new_version: str) -> None:
+    """Called right before launching the silent installer, so the relaunched
+    app can confirm the update actually landed instead of just going quiet."""
+    _update_marker_path().write_text(json.dumps({"version": new_version}))
+
+
+def consume_pending_update() -> str:
+    """Returns the pending version and clears the marker, or None if there
+    wasn't one. Call once at startup."""
+    path = _update_marker_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        return data.get("version")
+    except (json.JSONDecodeError, OSError):
+        return None
+    finally:
+        path.unlink(missing_ok=True)

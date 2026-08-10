@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         self.local_music_path = None
         self.update_check_worker = None
         self.update_download_worker = None
+        self._pending_update_version = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -225,7 +226,16 @@ class MainWindow(QMainWindow):
 
         self.results_list.itemDoubleClicked.connect(self._open_result_item)
 
+        self._notify_if_just_updated()
         self._check_for_update_in_background()
+
+    def _notify_if_just_updated(self):
+        pending_version = config.consume_pending_update()
+        if pending_version:
+            QMessageBox.information(
+                self, "Update installed",
+                f"✓ Updated to {pending_version} successfully.",
+            )
 
     def _check_for_update_in_background(self):
         self.update_check_worker = UpdateCheckWorker(__version__, parent=self)
@@ -240,6 +250,7 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
+        self._pending_update_version = info.version
         self.status_label.setText(f"Downloading update {info.version}...")
         dest_dir = Path(tempfile.gettempdir()) / "tiktok_auto_edit_updates"
         self.update_download_worker = UpdateDownloadWorker(info, dest_dir, parent=self)
@@ -258,6 +269,7 @@ class MainWindow(QMainWindow):
             )
             return
         try:
+            config.mark_pending_update(self._pending_update_version)
             launch_installer_and_exit(Path(installer_path))
         except RuntimeError as exc:
             QMessageBox.warning(self, "Update failed", str(exc))
