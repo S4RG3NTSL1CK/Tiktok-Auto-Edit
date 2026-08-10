@@ -10,6 +10,13 @@ class FFmpegError(RuntimeError):
     pass
 
 
+# preset "fast" + crf 18 (vs the old "veryfast"/20): meaningfully better
+# quality-per-bitrate from libx264 at a modest, worthwhile render-time cost
+# for clips this short.
+VIDEO_CODEC_ARGS = ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p"]
+AUDIO_CODEC_ARGS = ["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"]
+
+
 def ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -82,14 +89,17 @@ def crop_filter_for_aspect(width: int, height: int, aspect: str):
 
 
 def scale_target_for_aspect(aspect: str, width: int, height: int, four_k: bool = False) -> str:
+    # Lanczos explicitly: sharper than ffmpeg's default scaling algorithm,
+    # especially noticeable on the downscales most clips actually do.
+    flags = ":flags=lanczos"
     if aspect == "9:16":
-        return "scale=2160:3840" if four_k else "scale=1080:1920"
+        return ("scale=2160:3840" if four_k else "scale=1080:1920") + flags
     if aspect == "1:1":
-        return "scale=2160:2160" if four_k else "scale=1080:1080"
+        return ("scale=2160:2160" if four_k else "scale=1080:1080") + flags
     # original: preserve source aspect ratio, just cap the long edge
     if not four_k:
-        return "scale=trunc(iw/2)*2:trunc(ih/2)*2"
-    return "scale=3840:-2" if width >= height else "scale=-2:3840"
+        return "scale=trunc(iw/2)*2:trunc(ih/2)*2" + flags
+    return ("scale=3840:-2" if width >= height else "scale=-2:3840") + flags
 
 
 def is_upscale(width: int, height: int, aspect: str, four_k: bool) -> bool:
@@ -145,12 +155,7 @@ def export_clip(
             "-map", "[v]", "-map", "0:a?",
         ]
 
-    args += [
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-        "-movflags", "+faststart",
-        output_path,
-    ]
+    args += VIDEO_CODEC_ARGS + AUDIO_CODEC_ARGS + ["-movflags", "+faststart", output_path]
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     run_ffmpeg(args)
 
@@ -161,13 +166,10 @@ def trim_clip(input_path: str, output_path: str, start: float, duration: float) 
     snaps to the nearest keyframe and can produce a misaligned or broken
     result for an arbitrary short in-GOP offset."""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    run_ffmpeg([
-        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", input_path,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-        "-movflags", "+faststart",
-        output_path,
-    ])
+    run_ffmpeg(
+        ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", input_path]
+        + VIDEO_CODEC_ARGS + AUDIO_CODEC_ARGS + ["-movflags", "+faststart", output_path]
+    )
 
 
 def stitch_clips_with_crossfade(clips: list, output_path: str, transition_duration: float = 0.4) -> None:
@@ -206,9 +208,5 @@ def stitch_clips_with_crossfade(clips: list, output_path: str, transition_durati
     args += [
         "-filter_complex", ";".join(filter_parts),
         "-map", f"[{v_label}]", "-map", f"[{a_label}]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-        "-movflags", "+faststart",
-        output_path,
-    ]
+    ] + VIDEO_CODEC_ARGS + AUDIO_CODEC_ARGS + ["-movflags", "+faststart", output_path]
     run_ffmpeg(args)

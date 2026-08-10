@@ -28,10 +28,21 @@ updating again.
 
 Fully local, offline heuristic — no cloud video AI:
 - Extracts the audio track and computes an RMS energy curve.
+- Computes a **visual motion curve** too (frame-to-frame pixel difference on
+  downscaled grayscale samples via OpenCV, no extra dependency) — catches
+  moments that are visually dynamic but audio-quiet (a trick, a fast pan),
+  which pure audio-energy scoring would otherwise miss entirely.
 - Runs scene-cut detection (PySceneDetect) on the video.
-- Scores candidate windows by average energy, energy variance ("peakiness"),
-  and scene-cut density, then greedily picks the top non-overlapping windows,
-  snapped to nearby scene cuts for clean edit points.
+- Blends audio energy (60%) and motion (40%) into one score, plus energy
+  variance ("peakiness") and scene-cut density, then greedily picks the top
+  non-overlapping windows, snapped to nearby scene cuts for clean edit
+  points. Music-track energy matching stays audio-only on purpose — the
+  music should match what the clip actually sounds like, not how visually
+  busy it is.
+
+**Encoding quality**: `crf=18` / `preset=fast` (up from `20`/`veryfast`) and
+explicit Lanczos scaling — meaningfully better quality-per-bitrate at a
+modest, worthwhile render-time increase for clips this short.
 
 ## Highlight reel
 

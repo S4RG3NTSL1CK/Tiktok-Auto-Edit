@@ -3,14 +3,25 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 from . import beat_align, ffmpeg_utils
 from .audio_energy import compute_energy_curve, energy_in_range
 from .highlight_selector import select_highlights, select_snippet_window
+from .motion_energy import compute_motion_curve
 from .music_provider import (
     MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
     pick_local_track, resolve_local_tracks,
 )
 from .scene_detect import detect_scene_cuts
+
+# How much visual motion counts vs audio energy when scoring moments for
+# clip/highlight selection. Audio still leads (a loud exclamation usually IS
+# the moment), but this stops a visually dynamic, audio-quiet moment (a
+# trick, a fast pan) from being invisible to the scorer just because it's
+# quiet. Music-track energy matching stays audio-only on purpose — the
+# music should match the clip's actual sound, not its visual busyness.
+MOTION_BLEND_WEIGHT = 0.4
 
 
 class PipelineCancelled(Exception):
@@ -110,6 +121,15 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         times, values = compute_energy_curve(str(wav_path))
         _check_cancel(cancel_event)
 
+        report(28, "Analyzing visual motion...")
+        motion_times, motion_values = compute_motion_curve(video_path)
+        _check_cancel(cancel_event)
+
+        # Blend audio energy + visual motion onto the audio time grid for
+        # scoring — see MOTION_BLEND_WEIGHT above for why.
+        motion_resampled = np.interp(times, motion_times, motion_values)
+        combined_values = (1 - MOTION_BLEND_WEIGHT) * values + MOTION_BLEND_WEIGHT * motion_resampled
+
         report(32, "Detecting scene changes...")
         scene_cuts = detect_scene_cuts(video_path)
         _check_cancel(cancel_event)
@@ -118,7 +138,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         windows = select_highlights(
             duration=info.duration,
             energy_times=times,
-            energy_values=values,
+            energy_values=combined_values,
             scene_cuts=scene_cuts,
             min_len=settings.min_len,
             max_len=settings.max_len,
@@ -239,7 +259,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             snippet_clips = []
             for i, r in enumerate(results):
                 snippet_start, snippet_end = select_snippet_window(
-                    times, values, r.start, r.end, per_snippet_duration,
+                    times, combined_values, r.start, r.end, per_snippet_duration,
                 )
                 snippet_duration = snippet_end - snippet_start
                 rel_start = snippet_start - r.start
