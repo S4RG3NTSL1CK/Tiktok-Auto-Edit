@@ -1,0 +1,64 @@
+from PySide6.QtWidgets import (
+    QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QLabel, QVBoxLayout, QFileDialog, QHBoxLayout, QPushButton
+)
+
+from .. import config
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(420)
+        self._cfg = config.load_config()
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            'Get a free Freesound API key at '
+            '<a href="https://freesound.org/apiv2/apply/">freesound.org/apiv2/apply</a> '
+            "(select \"Client Credentials\" or the default token flow; you only need "
+            "the API key, not OAuth). Get a free Jamendo client_id at "
+            '<a href="https://devportal.jamendo.com">devportal.jamendo.com</a> '
+            "(create an application, copy its Client ID). You only need a key for "
+            "whichever provider you plan to use."
+        )
+        info.setOpenExternalLinks(True)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QFormLayout()
+        self.api_key_edit = QLineEdit(self._cfg.get("freesound_api_key", ""))
+        self.api_key_edit.setPlaceholderText("Freesound API key")
+        form.addRow("Freesound API key:", self.api_key_edit)
+
+        self.jamendo_key_edit = QLineEdit(self._cfg.get("jamendo_api_key", ""))
+        self.jamendo_key_edit.setPlaceholderText("Jamendo client_id")
+        form.addRow("Jamendo API key:", self.jamendo_key_edit)
+
+        output_row = QHBoxLayout()
+        self.output_dir_edit = QLineEdit(self._cfg.get("output_dir", ""))
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._browse_output_dir)
+        output_row.addWidget(self.output_dir_edit)
+        output_row.addWidget(browse_btn)
+        form.addRow("Default output folder:", output_row)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse_output_dir(self):
+        path = QFileDialog.getExistingDirectory(self, "Choose output folder", self.output_dir_edit.text())
+        if path:
+            self.output_dir_edit.setText(path)
+
+    def _save(self):
+        self._cfg["freesound_api_key"] = self.api_key_edit.text().strip()
+        self._cfg["jamendo_api_key"] = self.jamendo_key_edit.text().strip()
+        self._cfg["output_dir"] = self.output_dir_edit.text().strip()
+        config.save_config(self._cfg)
+        self.accept()

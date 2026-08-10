@@ -1,0 +1,15 @@
+# Do not `pip install -r requirements.txt` directly: scenedetect hard-depends
+# on non-headless opencv-python, which conflicts on-disk with
+# opencv-python-headless (both install into the same cv2/ package dir and
+# whichever installs last wins, breaking the other). Use ./setup.sh instead,
+# which installs opencv-python-headless first and scenedetect with --no-deps.
+PySide6>=6.6
+scenedetect>=0.6.4
+opencv-python-headless>=4.9
+numpy>=1.26
+soundfile>=0.12
+requests>=2.31
+imageio-ffmpeg>=0.5
+platformdirs>=4.2
+click
+tqdm
