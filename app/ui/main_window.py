@@ -1,3 +1,5 @@
+import sys
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -13,9 +15,11 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..core.ffmpeg_utils import probe_video, FFmpegError
 from ..core.pipeline import PipelineSettings
+from ..core.updater import launch_installer_and_exit
+from ..version import __version__
 from .music_browser_dialog import MusicBrowserDialog
 from .settings_dialog import SettingsDialog
-from .workers import PipelineWorker
+from .workers import PipelineWorker, UpdateCheckWorker, UpdateDownloadWorker
 
 
 class DropArea(QLabel):
@@ -47,7 +51,7 @@ class DropArea(QLabel):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tiktok Auto Edit")
+        self.setWindowTitle(f"Tiktok Auto Edit v{__version__}")
         self.resize(760, 720)
 
         self.cfg = config.load_config()
@@ -55,6 +59,8 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.selected_track = None
         self.selected_track_path = None
+        self.update_check_worker = None
+        self.update_download_worker = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -199,6 +205,62 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter, stretch=1)
 
         self.results_list.itemDoubleClicked.connect(self._open_result_item)
+
+        self._check_for_update_in_background()
+
+    def _check_for_update_in_background(self):
+        self.update_check_worker = UpdateCheckWorker(__version__, parent=self)
+        self.update_check_worker.found.connect(self._on_update_found)
+        self.update_check_worker.start()
+
+    def _on_update_found(self, info):
+        reply = QMessageBox.question(
+            self, "Update available",
+            f"Tiktok Auto Edit {info.version} is available (you have v{__version__}).\n\n"
+            f"{info.notes}\n\nDownload and install now? The app will close during install.",
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self.status_label.setText(f"Downloading update {info.version}...")
+        dest_dir = Path(tempfile.gettempdir()) / "tiktok_auto_edit_updates"
+        self.update_download_worker = UpdateDownloadWorker(info, dest_dir, parent=self)
+        self.update_download_worker.finished_ok.connect(self._on_update_downloaded)
+        self.update_download_worker.failed.connect(
+            lambda msg: QMessageBox.warning(self, "Update failed", f"Could not download update: {msg}")
+        )
+        self.update_download_worker.start()
+
+    def _on_update_downloaded(self, installer_path: str):
+        if sys.platform != "win32":
+            QMessageBox.information(
+                self, "Update downloaded",
+                f"Downloaded to {installer_path}, but silent auto-install is only supported on "
+                "the Windows build. Run it manually to install.",
+            )
+            return
+        try:
+            launch_installer_and_exit(Path(installer_path))
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Update failed", str(exc))
+            return
+        self.close()
+
+    def closeEvent(self, event):
+        if self.worker is not None and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self, "Generation in progress",
+                "Clips are still being generated. Cancel generation and close?",
+            )
+            if reply != QMessageBox.Yes:
+                event.ignore()
+                return
+            self.worker.cancel()
+            self.worker.wait(15000)
+
+        for worker in (self.update_check_worker, self.update_download_worker):
+            if worker is not None and worker.isRunning():
+                worker.wait(5000)
+        super().closeEvent(event)
 
     def _open_settings(self):
         dlg = SettingsDialog(self)

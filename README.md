@@ -3,6 +3,22 @@
 Desktop app: drop in an `.mp4`, get back a batch of high-energy short-form
 vertical clips with royalty-free background music mixed in.
 
+## Windows install
+
+Download the latest installer from the
+[Releases page](https://github.com/S4RG3NTSL1CK/Tiktok-Auto-Edit/releases/latest),
+run it, and launch **Tiktok Auto Edit** from the Start Menu. No Python or
+FFmpeg install needed — everything's bundled.
+
+The installer is unsigned (no paid code-signing cert), so Windows SmartScreen
+will show an "Unknown Publisher" warning on first run — click **More info →
+Run anyway**.
+
+**Auto-update:** on launch, the app checks GitHub for a newer release. If one
+exists, it asks before downloading and installing — accepting closes the app,
+installs silently, and you relaunch it. No manual reinstall needed after the
+first install.
+
 ## How it picks clips
 
 Fully local, offline heuristic — no cloud video AI:
@@ -42,7 +58,10 @@ listing every track that needs it. Keep it with the clips if you use them.
   specific track. That exact track is then used on every clip in the batch
   instead of auto-picking per clip. Click **Clear** to go back to auto mode.
 
-## Setup
+## Running from source (Linux/Mac, or Windows dev setup)
+
+The Windows install above is the normal path for actually using the app. Run
+from source only for development.
 
 ```bash
 cd /home/mcserver/Projects/Tiktok-Auto-Edit
@@ -75,6 +94,23 @@ python main.py
    **Browse & Listen...** to pick one specific track.
 4. Click **Generate Clips**. Output lands in the chosen folder as
    `clip_01.mp4`, `clip_02.mp4`, etc.
+
+## Releasing a new Windows build
+
+CI can't run on this machine (Linux) — the actual .exe is built by a
+`windows-latest` GitHub Actions runner, triggered by pushing a version tag:
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+The workflow (`.github/workflows/release.yml`) installs dependencies, runs
+PyInstaller (`build.spec`) to produce a onedir build, wraps it with Inno
+Setup (`installer.iss`) into a proper installer, and publishes it as a
+GitHub Release asset. That release is what the in-app updater checks
+against — so a bad tag push ships straight to every installed copy that
+accepts the prompt. Only tag a version once it's actually been tested.
 
 ## Notes
 
