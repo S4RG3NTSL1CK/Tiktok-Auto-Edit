@@ -10,7 +10,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[(ffmpeg_binary, '.')],
-    datas=[],
+    datas=[('app/assets/icon.png', 'app/assets')],
     hiddenimports=[
         'scenedetect',
         'scenedetect.detectors',
@@ -43,6 +43,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='app/assets/icon.ico',
 )
 
 coll = COLLECT(

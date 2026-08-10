@@ -3,14 +3,14 @@ import tempfile
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, Signal, QRectF
+from PySide6.QtGui import QDesktopServices, QPainter, QPen, QBrush, QColor, QLinearGradient, QPixmap
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QPushButton, QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit,
     QSlider, QProgressBar, QPlainTextEdit, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QGroupBox, QSplitter,
+    QFileDialog, QMessageBox, QGroupBox, QSplitter, QScrollArea,
 )
 
 from .. import config
@@ -22,6 +22,7 @@ from ..core.updater import launch_installer_and_exit, versions_equal
 from ..version import __version__
 from .music_browser_dialog import MusicBrowserDialog
 from .settings_dialog import SettingsDialog
+from .theme import INDIGO, VIOLET, asset_path, mark_accent
 from .tiktok_dialog import TikTokAccountDialog
 from .workers import (
     CopyrightCheckWorker, PipelineWorker, TikTokUploadWorker, UpdateCheckWorker, UpdateDownloadWorker,
@@ -34,10 +35,10 @@ class DropArea(QLabel):
     def __init__(self):
         super().__init__("Drag & drop an .mp4 file here, or click Browse below")
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumHeight(90)
+        self.setMinimumHeight(110)
         self.setAcceptDrops(True)
         self.setStyleSheet(
-            "QLabel { border: 2px dashed #888; border-radius: 8px; padding: 12px; color: #666; }"
+            "QLabel { color: #b8b8c8; padding: 12px; background: transparent; border: none; }"
         )
 
     def dragEnterEvent(self, event):
@@ -53,12 +54,43 @@ class DropArea(QLabel):
             else:
                 QMessageBox.warning(self, "Unsupported file", "Please drop an .mp4 file.")
 
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = QRectF(2, 2, self.width() - 4, self.height() - 4)
+        gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        gradient.setColorAt(0, QColor(INDIGO))
+        gradient.setColorAt(1, QColor(VIOLET))
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#16161f"))
+        painter.drawRoundedRect(rect, 14, 14)
+
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QBrush(gradient), 2))
+        painter.drawRoundedRect(rect, 14, 14)
+
+        bracket_len = 22
+        bracket_margin = 16
+        pen = QPen(QBrush(gradient), 3)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        w, h = self.width(), self.height()
+        painter.drawLine(bracket_margin, bracket_margin, bracket_margin + bracket_len, bracket_margin)
+        painter.drawLine(bracket_margin, bracket_margin, bracket_margin, bracket_margin + bracket_len)
+        painter.drawLine(w - bracket_margin, h - bracket_margin, w - bracket_margin - bracket_len, h - bracket_margin)
+        painter.drawLine(w - bracket_margin, h - bracket_margin, w - bracket_margin, h - bracket_margin - bracket_len)
+
+        painter.end()
+        super().paintEvent(event)
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Tiktok Auto Edit v{__version__}")
-        self.resize(760, 720)
+        self.resize(780, 820)
 
         self.cfg = config.load_config()
         self.video_path = None
@@ -72,12 +104,31 @@ class MainWindow(QMainWindow):
         self.copyright_check_worker = None
         self.tiktok_upload_worker = None
 
+        # Full settings content can naturally want more vertical space than
+        # many screens have (drop zone + two settings groups + progress/log/
+        # results). A scroll area lets it degrade to scrolling instead of
+        # Qt force-compressing every row into illegible slivers to fit.
         root = QWidget()
-        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(root)
+        self.setCentralWidget(scroll)
         layout = QVBoxLayout(root)
 
         top_bar = QHBoxLayout()
-        title = QLabel("<h2>Tiktok Auto Edit</h2>")
+        top_bar.setSpacing(10)
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(str(asset_path("icon.png")))
+        if not logo_pixmap.isNull():
+            logo_label.setPixmap(
+                logo_pixmap.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+        top_bar.addWidget(logo_label)
+        title = QLabel(
+            f'<span style="font-size:17pt; font-weight:700;">Tiktok</span> '
+            f'<span style="font-size:17pt; font-weight:700; color:{VIOLET};">Auto Edit</span>'
+        )
         top_bar.addWidget(title)
         top_bar.addStretch()
         tiktok_account_btn = QPushButton("TikTok Account")
@@ -191,7 +242,7 @@ class MainWindow(QMainWindow):
         music_form.addRow(self.beat_sync_checkbox)
 
         browse_row = QHBoxLayout()
-        browse_music_btn = QPushButton("Browse & Listen...")
+        browse_music_btn = QPushButton("Browse && Listen...")
         browse_music_btn.clicked.connect(self._open_music_browser)
         self.clear_track_btn = QPushButton("Clear")
         self.clear_track_btn.setEnabled(False)
@@ -235,6 +286,7 @@ class MainWindow(QMainWindow):
 
         action_row = QHBoxLayout()
         self.generate_btn = QPushButton("Generate Clips")
+        mark_accent(self.generate_btn)
         self.generate_btn.clicked.connect(self._start_generation)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setEnabled(False)

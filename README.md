@@ -1,7 +1,8 @@
 # Tiktok Auto Edit
 
 Desktop app: drop in an `.mp4`, get back a batch of high-energy short-form
-vertical clips with royalty-free background music mixed in.
+vertical clips with royalty-free background music mixed in. Dark UI with an
+indigo-to-violet gradient identity (`app/ui/theme.py`) matching the app icon.
 
 ## Windows install
 

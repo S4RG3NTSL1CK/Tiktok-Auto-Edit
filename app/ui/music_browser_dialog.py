@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.music_provider import MusicSpec, default_cache_dir, get_client
+from .theme import mark_accent, style_dialog
 
 
 class SearchWorker(QThread):
@@ -49,6 +50,7 @@ class MusicBrowserDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Browse Music")
+        style_dialog(self)
         self.setMinimumSize(560, 480)
 
         self.freesound_api_key = freesound_api_key
@@ -114,6 +116,7 @@ class MusicBrowserDialog(QDialog):
 
         button_row = QHBoxLayout()
         self.use_btn = QPushButton("Use this track")
+        mark_accent(self.use_btn)
         self.use_btn.setEnabled(False)
         self.use_btn.clicked.connect(self._use_selected_track)
         close_btn = QPushButton("Cancel")

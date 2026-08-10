@@ -4,12 +4,14 @@ from PySide6.QtWidgets import (
 
 from .. import config
 from ..core.tiktok_client import REDIRECT_URI
+from .theme import mark_accent, style_dialog
 
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
+        style_dialog(self)
         self.setMinimumWidth(420)
         self._cfg = config.load_config()
 
@@ -74,6 +76,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        mark_accent(buttons.button(QDialogButtonBox.Save))
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 
 from .. import config
 from ..core.tiktok_client import REDIRECT_URI
+from .theme import mark_accent, style_dialog
 from .workers import TikTokLoginWorker
 
 
@@ -9,6 +10,7 @@ class TikTokAccountDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("TikTok Account")
+        style_dialog(self)
         self.setMinimumWidth(440)
         self.login_worker = None
 
@@ -33,6 +35,7 @@ class TikTokAccountDialog(QDialog):
 
         btn_row = QHBoxLayout()
         self.connect_btn = QPushButton("Connect TikTok Account")
+        mark_accent(self.connect_btn)
         self.connect_btn.clicked.connect(self._connect)
         self.disconnect_btn = QPushButton("Disconnect")
         self.disconnect_btn.clicked.connect(self._disconnect)
