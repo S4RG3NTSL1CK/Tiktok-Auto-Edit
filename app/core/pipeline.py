@@ -6,7 +6,7 @@ from pathlib import Path
 from . import ffmpeg_utils
 from .audio_energy import compute_energy_curve
 from .highlight_selector import select_highlights
-from .music_provider import MusicProviderError, MusicSpec, get_client, get_music_for_clip
+from .music_provider import MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip
 from .scene_detect import detect_scene_cuts
 
 
@@ -30,6 +30,8 @@ class PipelineSettings:
     music_provider: str = "freesound"
     freesound_api_key: str = ""
     jamendo_api_key: str = ""
+    manual_track_path: str = ""
+    manual_track_attribution: str = ""
 
 
 @dataclass
@@ -49,6 +51,11 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
     def report(pct, msg):
         if progress_cb:
             progress_cb(pct, msg)
+
+    if settings.music_enabled and settings.manual_track_path and not Path(settings.manual_track_path).exists():
+        raise RuntimeError(
+            "The selected music track is no longer on disk. Re-pick it in the Music Browser."
+        )
 
     report(2, "Probing video...")
     info = ffmpeg_utils.probe_video(video_path)
@@ -85,12 +92,12 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         _check_cancel(cancel_event)
 
         music_client = None
-        if settings.music_enabled:
+        if settings.music_enabled and not settings.manual_track_path:
             music_client = get_client(
                 settings.music_provider, settings.freesound_api_key, settings.jamendo_api_key,
             )
 
-        cache_dir = Path(tempfile.gettempdir()) / "tiktok_auto_edit_music_cache"
+        cache_dir = default_cache_dir()
         used_track_keys = set()
         music_spec = MusicSpec(
             tags=settings.music_tags,
@@ -108,7 +115,10 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
             music_path = None
             attribution_line = ""
-            if music_client:
+            if settings.music_enabled and settings.manual_track_path:
+                music_path = settings.manual_track_path
+                attribution_line = settings.manual_track_attribution
+            elif music_client:
                 try:
                     music_path, track = get_music_for_clip(
                         music_client, window.duration, cache_dir, used_track_keys, music_spec,

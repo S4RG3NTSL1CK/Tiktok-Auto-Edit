@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..core.ffmpeg_utils import probe_video, FFmpegError
 from ..core.pipeline import PipelineSettings
+from .music_browser_dialog import MusicBrowserDialog
 from .settings_dialog import SettingsDialog
 from .workers import PipelineWorker
 
@@ -52,6 +53,8 @@ class MainWindow(QMainWindow):
         self.cfg = config.load_config()
         self.video_path = None
         self.worker = None
+        self.selected_track = None
+        self.selected_track_path = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -146,6 +149,20 @@ class MainWindow(QMainWindow):
         self.energy_combo.setCurrentIndex(idx if idx >= 0 else 0)
         music_form.addRow("Energy / tempo:", self.energy_combo)
 
+        browse_row = QHBoxLayout()
+        browse_music_btn = QPushButton("Browse & Listen...")
+        browse_music_btn.clicked.connect(self._open_music_browser)
+        self.clear_track_btn = QPushButton("Clear")
+        self.clear_track_btn.setEnabled(False)
+        self.clear_track_btn.clicked.connect(self._clear_selected_track)
+        browse_row.addWidget(browse_music_btn)
+        browse_row.addWidget(self.clear_track_btn)
+        music_form.addRow(browse_row)
+
+        self.selected_track_label = QLabel("No specific track selected — auto-picks per clip from tags above.")
+        self.selected_track_label.setWordWrap(True)
+        music_form.addRow(self.selected_track_label)
+
         self.music_vol_slider = QSlider(Qt.Horizontal)
         self.music_vol_slider.setRange(0, 100)
         self.music_vol_slider.setValue(int(self.cfg["music_volume"] * 100))
@@ -214,6 +231,33 @@ class MainWindow(QMainWindow):
     def _log(self, msg: str):
         self.log_view.appendPlainText(msg)
 
+    def _open_music_browser(self):
+        cfg = config.load_config()
+        dlg = MusicBrowserDialog(
+            self,
+            provider=self.music_provider_combo.currentText(),
+            freesound_api_key=cfg.get("freesound_api_key", ""),
+            jamendo_api_key=cfg.get("jamendo_api_key", ""),
+            initial_tags=self.tags_edit.text().strip(),
+            initial_instrumental=self.instrumental_checkbox.isChecked(),
+            initial_energy=self.energy_combo.currentData(),
+        )
+        if dlg.exec() and dlg.selected_track:
+            self.selected_track = dlg.selected_track
+            self.selected_track_path = dlg.selected_track_path
+            self.selected_track_label.setText(
+                f"Selected: \"{self.selected_track.name}\" by {self.selected_track.artist} "
+                f"({self.selected_track.license}) — used on every generated clip."
+            )
+            self.clear_track_btn.setEnabled(True)
+            self.music_checkbox.setChecked(True)
+
+    def _clear_selected_track(self):
+        self.selected_track = None
+        self.selected_track_path = None
+        self.selected_track_label.setText("No specific track selected — auto-picks per clip from tags above.")
+        self.clear_track_btn.setEnabled(False)
+
     def _collect_settings(self) -> PipelineSettings:
         cfg = config.load_config()
         return PipelineSettings(
@@ -230,6 +274,8 @@ class MainWindow(QMainWindow):
             output_dir=self.output_dir_edit.text().strip(),
             music_provider=self.music_provider_combo.currentText(),
             freesound_api_key=cfg.get("freesound_api_key", ""),
+            manual_track_path=self.selected_track_path or "",
+            manual_track_attribution=self.selected_track.attribution_line() if self.selected_track else "",
             jamendo_api_key=cfg.get("jamendo_api_key", ""),
         )
 
@@ -239,7 +285,7 @@ class MainWindow(QMainWindow):
             return
         settings = self._collect_settings()
         provider_key = settings.freesound_api_key if settings.music_provider == "freesound" else settings.jamendo_api_key
-        if settings.music_enabled and not provider_key:
+        if settings.music_enabled and not settings.manual_track_path and not provider_key:
             QMessageBox.warning(
                 self, "Missing API key",
                 f"Music is enabled with provider '{settings.music_provider}' but no API key is "

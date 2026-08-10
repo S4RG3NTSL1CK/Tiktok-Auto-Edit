@@ -1,5 +1,6 @@
 import random
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +37,10 @@ PROVIDERS = ["freesound", "jamendo"]
 
 class MusicProviderError(RuntimeError):
     pass
+
+
+def default_cache_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "tiktok_auto_edit_music_cache"
 
 
 @dataclass

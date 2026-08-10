@@ -14,19 +14,33 @@ Fully local, offline heuristic — no cloud video AI:
 
 ## Music
 
-Background music is pulled live from [Freesound](https://freesound.org) at
-generation time, filtered to CC0 and CC-BY (Attribution) licensed tracks only.
+Two royalty-free music providers, picked per run from the Music panel.
 Pixabay's public API does not expose a music endpoint (image/video only), so
 it isn't used here.
 
-- Get a free API key: https://freesound.org/apiv2/apply/ (you only need the
-  API key itself, not the OAuth flow).
-- Paste it into the app's **Settings** dialog.
-- CC-BY tracks require attribution — the app writes an `ATTRIBUTIONS.txt`
-  into your output folder listing every track that needs it. Keep it with
-  the clips if you use them.
-- Freesound leans toward sound-effects/loops more than polished full songs;
-  quality varies by track.
+- **Freesound** — get a free API key: https://freesound.org/apiv2/apply/
+  (you only need the API key itself, not the OAuth flow). Leans toward
+  sound-effects/loops more than polished full songs; quality varies by track.
+- **Jamendo** — get a free `client_id`: https://devportal.jamendo.com
+  (create an application, copy its **Client ID**, not the secret — it's a
+  short ~8-character string). Actual songs with real genre/mood/tempo
+  metadata, generally the better choice for "real music."
+
+Paste whichever key(s) you use into the app's **Settings** dialog. Both
+providers are filtered to CC0, CC-BY, and CC-BY-SA licensed tracks only — no
+NonCommercial or NoDerivatives restrictions. Any non-CC0 track requires
+attribution — the app writes an `ATTRIBUTIONS.txt` into your output folder
+listing every track that needs it. Keep it with the clips if you use them.
+
+**Two ways to pick music:**
+- **Auto (default):** set genre/mood tags (e.g. "lofi chill", "epic
+  cinematic"), instrumental-only (on by default, avoids clashing with
+  talking), and energy/tempo. Each generated clip gets an independently
+  picked matching track.
+- **Manual:** click **Browse & Listen...** in the Music panel to search
+  either provider, preview tracks in-app before committing, and pick one
+  specific track. That exact track is then used on every clip in the batch
+  instead of auto-picking per clip. Click **Clear** to go back to auto mode.
 
 ## Setup
 
@@ -57,8 +71,8 @@ python main.py
 1. Drag & drop (or Browse) an `.mp4` file.
 2. Set number of clips, clip length range, aspect ratio (9:16 / 1:1 /
    original), and an output folder.
-3. Optionally set a music mood keyword, or leave it blank to rotate through
-   moods automatically.
+3. Set up music (see above) — either genre/mood tags for auto-picking, or
+   **Browse & Listen...** to pick one specific track.
 4. Click **Generate Clips**. Output lands in the chosen folder as
    `clip_01.mp4`, `clip_02.mp4`, etc.
 
@@ -68,5 +82,7 @@ python main.py
   the non-headless build bundles its own Qt platform plugins, which conflict
   with PySide6's and can crash the app on launch with a Qt platform plugin
   error.
-- Freesound API keys and your default output folder are stored locally in
-  your OS config directory (via `platformdirs`), not in this repo.
+- API keys and your default output folder are stored locally in your OS
+  config directory (via `platformdirs`), not in this repo.
+- In-app music preview playback uses PySide6's bundled Qt Multimedia +
+  FFmpeg backend, so it works without any system media libraries installed.
