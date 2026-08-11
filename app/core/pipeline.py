@@ -8,8 +8,10 @@ import numpy as np
 from . import beat_align, ffmpeg_utils
 from .audio_energy import compute_energy_curve, energy_in_range
 from .highlight_selector import select_highlights, select_snippet_window
+from .hook_scoring import compute_hook_curve
 from .motion_energy import compute_motion_curve
 from .smart_crop import find_horizontal_focus
+from .transcription import TranscriptionError, transcribe_audio
 from .music_provider import (
     MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
     pick_local_track, resolve_local_tracks,
@@ -23,6 +25,15 @@ from .scene_detect import detect_scene_cuts
 # quiet. Music-track energy matching stays audio-only on purpose — the
 # music should match the clip's actual sound, not its visual busyness.
 MOTION_BLEND_WEIGHT = 0.4
+
+# Used instead of the audio/motion-only split above when transcript-based
+# hook scoring is enabled and succeeds — a hook line (a question, a strong
+# opener) is a real signal a viewer would keep watching for, distinct from
+# both loudness and visual motion, so it earns its own share of the score
+# rather than just nudging the other two.
+AUDIO_WEIGHT_WITH_HOOK = 0.45
+MOTION_WEIGHT_WITH_HOOK = 0.30
+HOOK_WEIGHT_WITH_HOOK = 0.25
 
 
 class PipelineCancelled(Exception):
@@ -64,6 +75,7 @@ class PipelineSettings:
     beat_sync_enabled: bool = True
     four_k_60fps: bool = False
     create_highlight_reel: bool = False
+    transcript_enabled: bool = False
 
 
 @dataclass
@@ -125,11 +137,29 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         report(28, "Analyzing visual motion...")
         motion_times, motion_values = compute_motion_curve(video_path)
         _check_cancel(cancel_event)
-
-        # Blend audio energy + visual motion onto the audio time grid for
-        # scoring — see MOTION_BLEND_WEIGHT above for why.
         motion_resampled = np.interp(times, motion_times, motion_values)
-        combined_values = (1 - MOTION_BLEND_WEIGHT) * values + MOTION_BLEND_WEIGHT * motion_resampled
+
+        hook_resampled = None
+        if settings.transcript_enabled:
+            report(30, "Transcribing speech for hook detection...")
+            try:
+                segments = transcribe_audio(str(wav_path))
+                hook_times, hook_values = compute_hook_curve(segments, info.duration)
+                hook_resampled = np.interp(times, hook_times, hook_values)
+            except TranscriptionError as exc:
+                report(30, f"Transcription skipped ({exc}) — continuing without hook scoring.")
+        _check_cancel(cancel_event)
+
+        # Blend audio energy + visual motion (+ speech hook score, if
+        # enabled and it succeeded) onto the audio time grid for scoring.
+        if hook_resampled is not None:
+            combined_values = (
+                AUDIO_WEIGHT_WITH_HOOK * values
+                + MOTION_WEIGHT_WITH_HOOK * motion_resampled
+                + HOOK_WEIGHT_WITH_HOOK * hook_resampled
+            )
+        else:
+            combined_values = (1 - MOTION_BLEND_WEIGHT) * values + MOTION_BLEND_WEIGHT * motion_resampled
 
         report(32, "Detecting scene changes...")
         scene_cuts = detect_scene_cuts(video_path)

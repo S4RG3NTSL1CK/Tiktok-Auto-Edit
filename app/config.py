@@ -23,6 +23,7 @@ DEFAULTS = {
     "beat_sync_enabled": True,
     "four_k_60fps": False,
     "create_highlight_reel": False,
+    "transcript_enabled": False,
     "audd_api_token": "",
     "tiktok_client_key": "",
     "tiktok_client_secret": "",
@@ -62,6 +63,12 @@ def save_config(config: dict) -> None:
 
 def music_cache_dir() -> Path:
     d = Path(user_config_dir(APP_NAME)) / "music_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def whisper_model_cache_dir() -> Path:
+    d = Path(user_config_dir(APP_NAME)) / "whisper_model_cache"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

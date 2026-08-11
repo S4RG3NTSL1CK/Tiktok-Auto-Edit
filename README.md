@@ -47,6 +47,35 @@ Fully local, offline heuristic — no cloud video AI:
 explicit Lanczos scaling — meaningfully better quality-per-bitrate at a
 modest, worthwhile render-time increase for clips this short.
 
+## Speech transcription / hook detection
+
+Optional checkbox in Clip settings: **Use speech transcription to favor
+hook moments**, off by default. When on, the app transcribes the video's
+speech locally (via [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
+CPU-only, no cloud call — audio never leaves your machine) and scores each
+spoken line with a simple heuristic: questions, exclamations, numbers/lists
+("3 tips", "top 5"), direct address ("you"/"your"), imperative openers
+("never", "stop", "imagine"), with an extra bonus on the very first spoken
+line. That score gets blended into the same scoring pass as audio energy
+and visual motion (45% audio / 30% motion / 25% hook, versus 60/40 with it
+off), so a clip is more likely to be built around a strong verbal hook
+instead of just a loud or visually busy moment.
+
+**What this actually is and isn't:** it's a heuristic on the *words used*,
+not a judgment of whether a line is actually interesting — same honest
+framing as the copyright check. A monotone question still scores as a
+hook; a genuinely compelling line without a question mark or a number
+might not. It's a proxy signal, not a content-quality model, and there's
+no cloud LLM involved (deliberately, to keep the app fully local).
+
+First use downloads a small (~140MB) speech-recognition model, cached in
+your OS config directory alongside the app's other cached data — this
+happens once, not per run. Transcribing adds render time up front,
+roughly proportional to video length (measured at faster than realtime on
+CPU with the default model). If the download or transcription fails for
+any reason (no internet on first use, etc.), the app logs it and falls
+back to scoring without the hook signal rather than failing the run.
+
 ## Smart crop
 
 When cropping down to 9:16 or 1:1, the app no longer just center-crops
