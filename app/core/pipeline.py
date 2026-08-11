@@ -9,6 +9,7 @@ from . import beat_align, ffmpeg_utils
 from .audio_energy import compute_energy_curve, energy_in_range
 from .highlight_selector import select_highlights, select_snippet_window
 from .motion_energy import compute_motion_curve
+from .smart_crop import find_horizontal_focus
 from .music_provider import (
     MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
     pick_local_track, resolve_local_tracks,
@@ -143,6 +144,11 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             min_len=settings.min_len,
             max_len=settings.max_len,
             num_clips=settings.num_clips,
+            # Audio-only (not the blended motion curve) — a natural pause
+            # is a quiet SOUND, not a visually-still frame, so the fallback
+            # boundary snap should key off what's actually being said/heard.
+            quiet_times=times,
+            quiet_values=values,
         )
         _check_cancel(cancel_event)
 
@@ -217,6 +223,14 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     if new_duration >= min(settings.min_len, 5.0):
                         clip_start, clip_duration = new_start, new_duration
 
+            # Face-aware crop focus: where to center the vertical/square crop
+            # horizontally instead of always centering on the full frame.
+            # No-op for aspect="original" (no horizontal crop happens then),
+            # so skip the sampling work in that case.
+            focus_x = 0.5
+            if settings.aspect != "original":
+                focus_x = find_horizontal_focus(video_path, clip_start, clip_start + clip_duration)
+
             out_path = output_dir / f"clip_{i + 1:02d}.mp4"
             ffmpeg_utils.export_clip(
                 video_path=video_path,
@@ -230,6 +244,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 music_volume=settings.music_volume,
                 orig_volume=settings.orig_volume,
                 four_k_60fps=settings.four_k_60fps,
+                focus_x=focus_x,
             )
 
             results.append(ClipResult(

@@ -35,14 +35,31 @@ Fully local, offline heuristic — no cloud video AI:
 - Runs scene-cut detection (PySceneDetect) on the video.
 - Blends audio energy (60%) and motion (40%) into one score, plus energy
   variance ("peakiness") and scene-cut density, then greedily picks the top
-  non-overlapping windows, snapped to nearby scene cuts for clean edit
-  points. Music-track energy matching stays audio-only on purpose — the
-  music should match what the clip actually sounds like, not how visually
-  busy it is.
+  non-overlapping windows. Music-track energy matching stays audio-only on
+  purpose — the music should match what the clip actually sounds like, not
+  how visually busy it is.
+- **Clean cut points:** boundaries snap to a nearby scene cut first (a real
+  visual edit point); if none is close by, they fall back to the nearest
+  local audio-energy minimum instead — a natural pause/breath — so a clip
+  is far less likely to start or end mid-word or mid-sound.
 
 **Encoding quality**: `crf=18` / `preset=fast` (up from `20`/`veryfast`) and
 explicit Lanczos scaling — meaningfully better quality-per-bitrate at a
 modest, worthwhile render-time increase for clips this short.
+
+## Smart crop
+
+When cropping down to 9:16 or 1:1, the app no longer just center-crops
+blindly. Per clip, it samples several frames across the clip's time range
+and runs face detection (YuNet, a small MIT-licensed local DNN model —
+bundled in the app, no network call) — if a face is found, the crop is
+horizontally centered on it instead of the raw frame center. If no face is
+found anywhere in the sampled frames (b-roll, wide shots, no people on
+screen), it falls back to a motion-weighted saliency estimate — the crop
+centers on wherever the visual action actually is — and only falls back to
+plain center-crop if neither signal finds anything. This only affects the
+horizontal offset; vertical framing is unaffected. Aspect mode "original"
+skips this entirely since no horizontal crop happens in that mode.
 
 ## Highlight reel
 

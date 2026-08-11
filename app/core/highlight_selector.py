@@ -24,11 +24,38 @@ def _cut_density(scene_cuts: list, start: float, end: float) -> float:
     return count / length
 
 
-def _snap(t: float, scene_cuts: list, tolerance: float = 1.5) -> float:
-    if not scene_cuts:
+def _local_quiet_point(t: float, times: np.ndarray, values: np.ndarray, tolerance: float) -> float:
+    """Nudges `t` to the quietest instant within `tolerance` seconds of it —
+    a local audio-energy minimum, i.e. a natural pause/breath. Used as a
+    softer fallback than scene-cut snapping so a clip boundary lands between
+    words/sounds instead of hard-cutting mid-word."""
+    if times is None or values is None or len(times) == 0:
         return t
-    nearest = min(scene_cuts, key=lambda c: abs(c - t))
-    return nearest if abs(nearest - t) <= tolerance else t
+    mask = (times >= t - tolerance) & (times <= t + tolerance)
+    if not mask.any():
+        return t
+    local_times = times[mask]
+    local_values = values[mask]
+    idx = int(np.argmin(local_values))
+    return float(local_times[idx])
+
+
+def _snap(
+    t: float,
+    scene_cuts: list,
+    quiet_times: np.ndarray = None,
+    quiet_values: np.ndarray = None,
+    scene_tolerance: float = 1.5,
+    quiet_tolerance: float = 0.6,
+) -> float:
+    # Prefer a real scene cut (a hard visual edit point) when one's close
+    # by; otherwise fall back to the nearest natural quiet point so cuts
+    # still avoid landing mid-word/mid-sound even with no scene change.
+    if scene_cuts:
+        nearest = min(scene_cuts, key=lambda c: abs(c - t))
+        if abs(nearest - t) <= scene_tolerance:
+            return nearest
+    return _local_quiet_point(t, quiet_times, quiet_values, quiet_tolerance)
 
 
 def select_highlights(
@@ -41,9 +68,14 @@ def select_highlights(
     num_clips: int,
     step: float = 2.0,
     min_gap: float = 3.0,
+    quiet_times: np.ndarray = None,
+    quiet_values: np.ndarray = None,
 ) -> list:
     if duration <= min_len:
         return [HighlightWindow(0.0, duration, 1.0)]
+
+    if quiet_times is None:
+        quiet_times, quiet_values = energy_times, energy_values
 
     lengths = sorted(set(
         max(min_len, min(max_len, x))
@@ -89,8 +121,8 @@ def select_highlights(
         )
         if overlaps:
             continue
-        snapped_start = max(0.0, _snap(c.start, scene_cuts))
-        snapped_end = min(duration, _snap(c.end, scene_cuts))
+        snapped_start = max(0.0, _snap(c.start, scene_cuts, quiet_times, quiet_values))
+        snapped_end = min(duration, _snap(c.end, scene_cuts, quiet_times, quiet_values))
         if snapped_end - snapped_start < min_len * 0.8:
             snapped_start, snapped_end = c.start, c.end
         selected.append(HighlightWindow(snapped_start, snapped_end, c.score))
@@ -124,4 +156,11 @@ def select_snippet_window(
             best_start = t
         t += step
 
-    return best_start, best_start + duration
+    # Light polish only — nudge the edges to nearby quiet points without
+    # meaningfully moving off the energy-maximizing window we just found.
+    snippet_end = best_start + duration
+    polished_start = _local_quiet_point(best_start, energy_times, energy_values, tolerance=0.4)
+    polished_end = _local_quiet_point(snippet_end, energy_times, energy_values, tolerance=0.4)
+    if polished_end - polished_start < duration * 0.9:
+        return best_start, snippet_end
+    return polished_start, polished_end

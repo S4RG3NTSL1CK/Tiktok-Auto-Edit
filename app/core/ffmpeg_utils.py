@@ -79,11 +79,15 @@ def crop_dimensions_for_aspect(width: int, height: int, aspect: str):
         return width, new_h
 
 
-def crop_filter_for_aspect(width: int, height: int, aspect: str):
+def crop_filter_for_aspect(width: int, height: int, aspect: str, focus_x: float = 0.5):
+    """`focus_x` is a 0..1 fraction of width to center the crop window on
+    horizontally (from smart_crop.find_horizontal_focus), clamped so the
+    crop window never runs off either edge. Defaults to plain center."""
     if aspect == "original":
         return None
     crop_w, crop_h = crop_dimensions_for_aspect(width, height, aspect)
-    x = (width - crop_w) // 2
+    ideal_x = focus_x * width - crop_w / 2
+    x = int(max(0, min(ideal_x, width - crop_w)))
     y = (height - crop_h) // 2
     return f"crop={crop_w}:{crop_h}:{x}:{y}"
 
@@ -124,8 +128,9 @@ def export_clip(
     music_volume: float = 0.25,
     orig_volume: float = 1.0,
     four_k_60fps: bool = False,
+    focus_x: float = 0.5,
 ) -> None:
-    crop = crop_filter_for_aspect(width, height, aspect)
+    crop = crop_filter_for_aspect(width, height, aspect, focus_x)
     scale = scale_target_for_aspect(aspect, width, height, four_k_60fps)
     filters = [f for f in (crop, scale, "setsar=1") if f]
     if four_k_60fps:

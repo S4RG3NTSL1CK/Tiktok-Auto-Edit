@@ -10,7 +10,10 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[(ffmpeg_binary, '.')],
-    datas=[('app/assets/icon.png', 'app/assets')],
+    datas=[
+        ('app/assets/icon.png', 'app/assets'),
+        ('app/assets/face_detection_yunet.onnx', 'app/assets'),
+    ],
     hiddenimports=[
         'scenedetect',
         'scenedetect.detectors',
