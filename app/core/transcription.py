@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from faster_whisper import WhisperModel
-
 from ..config import whisper_model_cache_dir
 
 # "base.en" — good speed/accuracy tradeoff for hook detection, which only
@@ -25,9 +23,24 @@ class Segment:
     text: str
 
 
-def _get_model() -> WhisperModel:
+def _get_model():
+    # Imported here, not at module level: this is an optional feature, and
+    # a packaging mistake that leaves faster_whisper missing from a given
+    # build must not be able to crash app startup for every OTHER feature
+    # too (transcription.py is imported at module level all the way up
+    # through pipeline.py -> main_window.py -> main.py). Confirmed this
+    # failure mode is real, not hypothetical — v1.9.0 shipped with
+    # faster_whisper missing from the CI install list and crashed the
+    # entire app on launch, before it could even reach its own
+    # auto-updater. This is the direct fix for that class of bug.
     global _model
     if _model is None:
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise TranscriptionError(
+                f"Speech-recognition support isn't available in this build: {exc}"
+            ) from exc
         try:
             _model = WhisperModel(
                 MODEL_SIZE, device="cpu", compute_type="int8",
