@@ -23,6 +23,7 @@ DEFAULTS = {
     "beat_sync_enabled": True,
     "resolution_tier": "1080p",
     "fps_tier": "source",
+    "edit_template": "",
     "create_highlight_reel": False,
     "transcript_enabled": False,
     "audd_api_token": "",

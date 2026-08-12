@@ -17,6 +17,7 @@ from .. import config
 from ..core.ffmpeg_utils import probe_video, FFmpegError
 from ..core.music_provider import resolve_local_tracks
 from ..core.pipeline import PipelineSettings
+from ..templates import TEMPLATES, get_template
 from ..core.tiktok_client import TikTokError, refresh_access_token
 from ..core.updater import launch_installer_and_exit, versions_equal
 from ..version import __version__
@@ -154,6 +155,22 @@ class MainWindow(QMainWindow):
 
         settings_box = QGroupBox("Clip settings")
         form = QFormLayout(settings_box)
+
+        self.template_combo = QComboBox()
+        self.template_combo.addItem("Custom (manual settings)", "")
+        for t in TEMPLATES:
+            self.template_combo.addItem(t.label, t.key)
+        saved_template = self.cfg.get("edit_template", "")
+        idx = self.template_combo.findData(saved_template)
+        self.template_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.template_combo.setToolTip(
+            "Applies a coherent set of pacing/structure settings below (clip length, "
+            "cut count, beat-sync, highlight reel, hook detection, music balance) as a "
+            "starting point — everything it sets stays editable afterward. Doesn't touch "
+            "aspect ratio, resolution/fps, or which music you pick — those are separate."
+        )
+        self.template_combo.currentIndexChanged.connect(self._apply_template)
+        form.addRow("Edit style:", self.template_combo)
 
         self.num_clips_spin = QSpinBox()
         self.num_clips_spin.setRange(1, 30)
@@ -468,6 +485,26 @@ class MainWindow(QMainWindow):
         dlg.exec()
         self._on_result_selection_changed(self.results_list.currentItem(), None)
 
+    def _apply_template(self, _index=None):
+        key = self.template_combo.currentData()
+        if not key:
+            return
+        t = get_template(key)
+        if t is None:
+            return
+        self.num_clips_spin.setValue(t.num_clips)
+        self.min_len_spin.setValue(t.min_len)
+        self.max_len_spin.setValue(t.max_len)
+        self.beat_sync_checkbox.setChecked(t.beat_sync_enabled)
+        self.instrumental_checkbox.setChecked(t.music_instrumental_only)
+        energy_idx = self.energy_combo.findData(t.music_energy)
+        if energy_idx >= 0:
+            self.energy_combo.setCurrentIndex(energy_idx)
+        self.music_vol_slider.setValue(int(t.music_volume * 100))
+        self.orig_vol_slider.setValue(int(t.orig_volume * 100))
+        self.highlight_reel_checkbox.setChecked(t.create_highlight_reel)
+        self.transcript_checkbox.setChecked(t.transcript_enabled)
+
     def _browse_video(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select video", "", "MP4 videos (*.mp4)")
         if path:
@@ -618,6 +655,7 @@ class MainWindow(QMainWindow):
             "min_len": settings.min_len,
             "max_len": settings.max_len,
             "aspect": settings.aspect,
+            "edit_template": self.template_combo.currentData() or "",
             "resolution_tier": settings.resolution_tier,
             "fps_tier": settings.fps_tier,
             "create_highlight_reel": settings.create_highlight_reel,

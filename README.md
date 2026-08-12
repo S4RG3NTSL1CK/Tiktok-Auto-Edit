@@ -299,11 +299,38 @@ source .venv/bin/activate
 python main.py
 ```
 
+## Edit style templates
+
+**Edit style** dropdown at the top of Clip settings — five built-in
+presets, each a coherent bundle of pacing/structure settings (clip length,
+cut count, beat-sync, highlight reel, hook detection, music balance)
+applied as a starting point. Everything a template sets stays editable
+afterward — picking one doesn't lock the individual controls. Deliberately
+doesn't touch aspect ratio, resolution/fps, or which music/tags/provider
+to use — those stay separate choices, so "video, music, and edit style"
+really are three independent picks, matching how the app already works.
+
+- **Fast-Paced Highlights** — short, punchy clips, hard beat-synced cuts,
+  highlight reel on, hook detection on. General-purpose default.
+- **Cinematic Story** — longer, fewer clips that let dialogue and pacing
+  breathe. Music stays subtle, cuts aren't forced onto the beat.
+- **Music Video / Beat Drop** — very short, rapid cuts tightly synced to
+  strong beats, built around a highlight reel. Wants high-energy music
+  with vocals, not instrumental.
+- **Podcast / Talking Head** — clips built around strong spoken hooks with
+  room for a full thought; quiet background music.
+- **Gaming / Action Highlights** — medium clips for fast on-screen action,
+  beat-synced cuts, highlight reel.
+
+Picking **Custom (manual settings)** leaves every control exactly as you
+last set it — templates never apply unless explicitly chosen.
+
 ## Usage
 
 1. Drag & drop (or Browse) an `.mp4` file.
-2. Set number of clips, clip length range, aspect ratio (9:16 / 1:1 /
-   original), and an output folder.
+2. Optionally pick an **Edit style** template as a starting point, then
+   adjust number of clips, clip length range, aspect ratio (9:16 / 1:1 /
+   original), and an output folder as needed.
 3. Set up music (see above) — either genre/mood tags for auto-picking, or
    **Browse & Listen...** to pick one specific track.
 4. Click **Generate Clips**. Output lands in the chosen folder as
