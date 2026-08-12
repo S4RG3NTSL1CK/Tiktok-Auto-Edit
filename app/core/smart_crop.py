@@ -46,20 +46,27 @@ def _motion_center_x(gray_frames: list) -> float:
 
 def find_horizontal_focus_track(video_path: str, start: float, end: float, sample_interval: float = 2.5) -> list:
     """Returns [(t_relative_to_start, focus_x), ...] tracking where the
-    subject/action is horizontally, sampled roughly every `sample_interval`
-    seconds across [start, end] — NOT a single static value for the whole
-    clip. A fixed offset falls apart on longer or high-motion clips (a
-    60s boss fight where the subject moves all over the frame): confirmed
-    by reviewing real output where a single-offset crop clearly drifted off
-    the action partway through a long clip. `t_relative_to_start` is
-    0-based (0 at `start`) to match ffmpeg's `t` inside a filter graph
-    after input-side `-ss` trimming, which rebases PTS to ~0.
+    subject is horizontally, sampled roughly every `sample_interval`
+    seconds across [start, end]. `t_relative_to_start` is 0-based (0 at
+    `start`) to match ffmpeg's `t` inside a filter graph after input-side
+    `-ss` trimming, which rebases PTS to ~0.
 
-    Per sample: detected face position (YuNet) first, else a short local
-    motion estimate (two nearby frames, not the whole clip), else the
-    previous sample's value for continuity, else 0.5 center as the final
-    fallback. Light exponential smoothing is applied across the resulting
-    sequence so the crop pans rather than snaps between samples.
+    Strongly biased to stay centered — only a real, confident face
+    detection can move the crop off-center; per-sample motion/frame-diff
+    was removed as a per-sample signal after confirming it caused visible
+    unwanted sway on real footage (action-game VFX/particles/screen shake
+    all register as "motion" with no relation to where the actual subject
+    is, so chasing it per-sample looked like drifting/swaying rather than
+    tracking). A sample with no face decays back toward center rather than
+    holding an old off-center position indefinitely. The whole sequence is
+    then heavily smoothed and damped toward center, so any real movement
+    is gradual and partial rather than a full, sudden pan.
+
+    If NO face is found anywhere in the whole clip (pure b-roll, no
+    people), falls back to a single static motion-weighted estimate for
+    the entire clip instead of time-varying — faceless content doesn't
+    have a "subject" to chase, so a stable single crop is more appropriate
+    than time-varying noise.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -69,41 +76,49 @@ def find_horizontal_focus_track(video_path: str, start: float, end: float, sampl
         num_samples = max(int(duration / sample_interval), 1) + 1
         sample_rel_times = np.linspace(0, duration, num_samples)
 
-        track = []
-        prev_fx = None
+        raw_track = []
+        gray_frames = []
+        prev_fx = 0.5
+        any_face_found = False
         for t_rel in sample_rel_times:
             t_abs = start + t_rel
             cap.set(cv2.CAP_PROP_POS_MSEC, t_abs * 1000)
             ok, frame = cap.read()
             if not ok:
-                fx = prev_fx if prev_fx is not None else 0.5
-                track.append((float(t_rel), fx))
+                raw_track.append((float(t_rel), prev_fx))
                 continue
 
-            fx = _detect_face_center_x(frame)
-            if fx is None:
-                cap.set(cv2.CAP_PROP_POS_MSEC, max(t_abs - 0.2, start) * 1000)
-                ok2, frame2 = cap.read()
-                if ok2:
-                    small1 = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
-                    small2 = cv2.resize(frame2, (160, 90), interpolation=cv2.INTER_AREA)
-                    gray1 = cv2.cvtColor(small1, cv2.COLOR_BGR2GRAY)
-                    gray2 = cv2.cvtColor(small2, cv2.COLOR_BGR2GRAY)
-                    motion_fx = _motion_center_x([gray2, gray1])
-                    fx = motion_fx if motion_fx != 0.5 else None
-            if fx is None:
-                fx = prev_fx if prev_fx is not None else 0.5
+            face_fx = _detect_face_center_x(frame)
+            small = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
+            gray_frames.append(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY))
 
-            track.append((float(t_rel), fx))
+            if face_fx is not None:
+                any_face_found = True
+                fx = face_fx
+            else:
+                # No face this sample: drift back toward center instead of
+                # chasing motion/visual noise.
+                fx = prev_fx + (0.5 - prev_fx) * 0.3
+
+            raw_track.append((float(t_rel), fx))
             prev_fx = fx
 
-        if not track:
+        if not raw_track:
             return [(0.0, 0.5)]
 
-        alpha = 0.35
-        smoothed_xs = [track[0][1]]
-        for _, fx in track[1:]:
-            smoothed_xs.append(alpha * fx + (1 - alpha) * smoothed_xs[-1])
-        return [(t, fx) for (t, _), fx in zip(track, smoothed_xs)]
+        if not any_face_found:
+            return [(0.0, _motion_center_x(gray_frames))]
+
+        # Heavy smoothing + damping toward center: a strong bias toward
+        # staying centered that only drifts for a sustained, confident
+        # reason, not single-sample noise.
+        alpha = 0.12
+        damping = 0.5
+        smoothed = [raw_track[0][1]]
+        for _, fx in raw_track[1:]:
+            smoothed.append(alpha * fx + (1 - alpha) * smoothed[-1])
+        damped = [0.5 + (v - 0.5) * damping for v in smoothed]
+
+        return [(t, fx) for (t, _), fx in zip(raw_track, damped)]
     finally:
         cap.release()

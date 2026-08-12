@@ -79,20 +79,23 @@ back to scoring without the hook signal rather than failing the run.
 ## Smart crop
 
 When cropping down to 9:16 or 1:1, the app no longer just center-crops
-blindly. It samples across the clip's time range roughly every 2.5s (not
-once for the whole clip) and runs face detection (YuNet, a small
-MIT-licensed local DNN model — bundled in the app, no network call) at
-each sample — if a face is found, the crop centers on it; otherwise it
-falls back to a motion-weighted saliency estimate for that moment, or the
-previous sample's position if neither finds anything, smoothed so the pan
-doesn't jump between samples. The crop then **pans smoothly over time** to
-follow the subject instead of using one fixed offset for the whole clip —
-important on longer or high-motion clips, where a subject moving around
-during a 30-60s clip would otherwise drift out of a crop window computed
-once at the start. This only affects the horizontal offset; vertical
-framing is unaffected (a 9:16 crop from a landscape source keeps the full
-source height). Aspect mode "original" skips this entirely since no
-horizontal crop happens in that mode.
+blindly — but it stays strongly biased toward center rather than actively
+panning to follow motion. It samples across the clip's time range roughly
+every 2.5s and runs face detection (YuNet, a small MIT-licensed local DNN
+model — bundled in the app, no network call) at each sample. Only a real,
+confident face detection can move the crop off-center; a sample with no
+face drifts back toward center rather than holding an old position or
+chasing generic visual motion (an earlier version used a per-sample motion
+fallback for this, but on real footage — particle effects, screen shake,
+VFX — that read as "motion" with no relation to the actual subject,
+causing visible unwanted sway; it's gone now). The resulting sequence is
+also heavily smoothed and damped toward center, so any real adjustment is
+gradual and partial, not a full pan. If no face is found anywhere in the
+whole clip (pure b-roll, no people), the crop uses one stable motion-based
+estimate for the entire clip instead of chasing noise. This only affects
+the horizontal offset; vertical framing is unaffected (a 9:16 crop from a
+landscape source keeps the full source height). Aspect mode "original"
+skips this entirely since no horizontal crop happens in that mode.
 
 ## Highlight reel
 
@@ -130,8 +133,11 @@ they belong together, not just overlaid:
   tempo estimate + phase-locked beat grid — hand-rolled on `numpy`/`scipy`,
   deliberately not `librosa`, to avoid dragging `numba`/`llvmlite` into the
   Windows build) and snaps that clip's start **and** end to the nearest
-  beats, within your min/max length range. Cuts land on the beat instead of
-  at an arbitrary sample. Toggle: **Beat-sync clip cuts to music**.
+  beats, within your min/max length range. It also picks out **downbeats**
+  (the strong first beat of each bar) and prefers snapping the start to one
+  of those when it's within about a bar's reach — starting exactly "on the
+  one" reads as far more intentional than landing on an arbitrary beat.
+  Toggle: **Beat-sync clip cuts to music**.
 - **Energy-matched auto music (default energy setting):** in Auto music
   mode, each clip's own audio energy (already computed for clip selection)
   is bucketed into very-low → very-high and used to bias that specific
@@ -143,6 +149,15 @@ they belong together, not just overlaid:
 Beat-sync applies no matter which music source you're using (Auto/Manual/
 Local). Energy-matching only applies in Auto mode — Manual and Local already
 lock in one specific track ahead of time, so there's nothing to match.
+
+The highlight reel gets the same beat-sync treatment, applied to where the
+**cuts between snippets** land rather than a single clip's start/end. The
+reel's music is picked and its beat grid detected before the snippets are
+even pulled, and each snippet's length is nudged (within a bounded range,
+so it can't distort a highlight beyond recognition) so that its cut lands
+on a downbeat of the one track playing under the whole reel — cuts landing
+on the beat instead of wherever content-energy selection happened to put
+them, the same technique used in real music-synced edits.
 
 ## Resolution / frame rate export
 

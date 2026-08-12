@@ -40,6 +40,12 @@ class PipelineCancelled(Exception):
     pass
 
 
+def _nearest(value: float, candidates) -> float:
+    if candidates is None or len(candidates) == 0:
+        return value
+    return float(candidates[np.argmin(np.abs(candidates - value))])
+
+
 def _bucket_energy(value: float) -> str:
     if value < 0.2:
         return "verylow"
@@ -208,7 +214,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     ffmpeg_utils.extract_audio_wav(music_file_path, str(beat_wav))
                     beat_cache[music_file_path] = beat_align.detect_beats(str(beat_wav))
                 except ffmpeg_utils.FFmpegError:
-                    beat_cache[music_file_path] = (None, None)
+                    beat_cache[music_file_path] = (None, None, None)
             return beat_cache[music_file_path]
 
         total = len(windows)
@@ -249,10 +255,11 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
             clip_start, clip_duration = window.start, window.duration
             if settings.beat_sync_enabled and music_path:
-                bpm, beat_times = get_beat_grid(str(music_path))
+                bpm, beat_times, downbeat_times = get_beat_grid(str(music_path))
                 if beat_times is not None:
                     new_start, new_duration = beat_align.align_window_to_beats(
                         window.start, window.duration, beat_times, settings.min_len, settings.max_len,
+                        downbeat_times=downbeat_times,
                     )
                     new_start = max(0.0, min(new_start, info.duration))
                     new_duration = min(new_duration, info.duration - new_start)
@@ -303,12 +310,68 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             target_reel_duration = (settings.min_len + settings.max_len) / 2
             per_snippet_duration = max(target_reel_duration / len(results), 1.5)
 
+            # Music is picked (and its beat grid detected) BEFORE snippets
+            # are built, so snippet durations can be tuned to land the
+            # crossfade cuts on the beat — previously snippets were chosen
+            # purely by content energy with zero relationship to the music
+            # laid under the reel.
+            reel_music_path = None
+            reel_attribution = ""
+            if settings.music_enabled and settings.music_source == "manual":
+                reel_music_path = settings.manual_track_path
+                reel_attribution = settings.manual_track_attribution
+            elif settings.music_enabled and settings.music_source == "local" and local_tracks:
+                track_path = pick_local_track(local_tracks, set())
+                reel_music_path = track_path
+                reel_attribution = f"Local file: {track_path.name}"
+            elif settings.music_enabled and settings.music_source == "auto" and music_client:
+                try:
+                    reel_music_path, track = get_music_for_clip(
+                        music_client, target_reel_duration, cache_dir, set(), MusicSpec(
+                            tags=settings.music_tags,
+                            instrumental_only=settings.music_instrumental_only,
+                            # "auto" means per-clip energy-matching, which
+                            # doesn't cleanly apply to one track spanning
+                            # several different highlights' energy levels.
+                            energy=settings.music_energy if settings.music_energy != "auto" else "any",
+                        ),
+                    )
+                    reel_attribution = track.attribution_line()
+                except MusicProviderError as exc:
+                    reel_attribution = f"(music skipped for reel: {exc})"
+
+            reel_beat_times, reel_downbeat_times = None, None
+            if settings.beat_sync_enabled and reel_music_path:
+                _, reel_beat_times, reel_downbeat_times = get_beat_grid(str(reel_music_path))
+            # Downbeats read as more intentional cut points than any beat;
+            # use them when available, otherwise any detected beat.
+            cut_targets = (
+                reel_downbeat_times if reel_downbeat_times is not None and len(reel_downbeat_times) > 0
+                else reel_beat_times
+            )
+
+            xfade_dur = 0.4  # matches stitch_clips_with_crossfade's default
             snippet_clips = []
+            cumulative_end = 0.0
             for i, r in enumerate(results):
+                planned_duration = per_snippet_duration
+                if cut_targets is not None and len(cut_targets) > 0:
+                    prior_xfade = xfade_dur if i > 0 else 0.0
+                    target_cumulative = cumulative_end + per_snippet_duration - prior_xfade
+                    aligned_cumulative = _nearest(target_cumulative, cut_targets)
+                    candidate_duration = aligned_cumulative - cumulative_end + prior_xfade
+                    # Keep within a sane range of the natural target so a
+                    # sparse beat grid can't produce a degenerate snippet.
+                    lo, hi = per_snippet_duration * 0.5, per_snippet_duration * 1.6
+                    if lo <= candidate_duration <= hi:
+                        planned_duration = candidate_duration
+
                 snippet_start, snippet_end = select_snippet_window(
-                    times, combined_values, r.start, r.end, per_snippet_duration,
+                    times, combined_values, r.start, r.end, planned_duration,
                 )
                 snippet_duration = snippet_end - snippet_start
+                cumulative_end += snippet_duration - (xfade_dur if i > 0 else 0.0)
+
                 # Extracted straight from the ORIGINAL source, not the
                 # already-rendered clip: each clip's own music is already
                 # mixed into its file, so trimming from that would carry a
@@ -336,33 +399,10 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
             report(98, "Stitching highlight reel...")
             reel_video_path = tmp_dir / "reel_no_music.mp4"
-            ffmpeg_utils.stitch_clips_with_crossfade(snippet_clips, str(reel_video_path))
-            reel_duration = sum(d for _, d in snippet_clips) - max(len(snippet_clips) - 1, 0) * 0.4
-
-            reel_music_path = None
-            reel_attribution = ""
-            if settings.music_enabled and settings.music_source == "manual":
-                reel_music_path = settings.manual_track_path
-                reel_attribution = settings.manual_track_attribution
-            elif settings.music_enabled and settings.music_source == "local" and local_tracks:
-                track_path = pick_local_track(local_tracks, set())
-                reel_music_path = track_path
-                reel_attribution = f"Local file: {track_path.name}"
-            elif settings.music_enabled and settings.music_source == "auto" and music_client:
-                try:
-                    reel_music_path, track = get_music_for_clip(
-                        music_client, reel_duration, cache_dir, set(), MusicSpec(
-                            tags=settings.music_tags,
-                            instrumental_only=settings.music_instrumental_only,
-                            # "auto" means per-clip energy-matching, which
-                            # doesn't cleanly apply to one track spanning
-                            # several different highlights' energy levels.
-                            energy=settings.music_energy if settings.music_energy != "auto" else "any",
-                        ),
-                    )
-                    reel_attribution = track.attribution_line()
-                except MusicProviderError as exc:
-                    reel_attribution = f"(music skipped for reel: {exc})"
+            ffmpeg_utils.stitch_clips_with_crossfade(
+                snippet_clips, str(reel_video_path), transition_duration=xfade_dur,
+            )
+            reel_duration = sum(d for _, d in snippet_clips) - max(len(snippet_clips) - 1, 0) * xfade_dur
 
             report(99, "Mixing reel music...")
             reel_path = output_dir / "highlight_reel.mp4"
@@ -386,6 +426,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     f"Highlight reel — best {per_snippet_duration:.1f}s moment from each of "
                     f"{len(snippet_clips)} clips, stitched with crossfades"
                     + (f", one track throughout: {reel_attribution}" if reel_music_path else "")
+                    + (", cuts synced to the beat" if cut_targets is not None and len(cut_targets) > 0 else "")
                 ),
             ))
 
