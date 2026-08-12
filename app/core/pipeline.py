@@ -73,7 +73,8 @@ class PipelineSettings:
     manual_track_attribution: str = ""
     local_music_path: str = ""
     beat_sync_enabled: bool = True
-    four_k_60fps: bool = False
+    resolution_tier: str = "1080p"  # "source" | "1080p" | "4k"
+    fps_tier: str = "source"        # "source" | "30" | "60"
     create_highlight_reel: bool = False
     transcript_enabled: bool = False
 
@@ -114,10 +115,15 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
     info = ffmpeg_utils.probe_video(video_path)
     _check_cancel(cancel_event)
 
-    if settings.four_k_60fps and ffmpeg_utils.is_upscale(info.width, info.height, settings.aspect, True):
+    if ffmpeg_utils.is_upscale(info.width, info.height, settings.aspect, settings.resolution_tier):
         report(3, (
             f"Note: source is {info.width}x{info.height} — after cropping to {settings.aspect}, "
-            "4K output will be upscaled, not genuinely higher detail."
+            f"{settings.resolution_tier} output will be upscaled, not genuinely higher detail."
+        ))
+    if ffmpeg_utils.is_fps_upscale(info.fps, settings.fps_tier):
+        report(3, (
+            f"Note: source is {info.fps:.1f}fps — {settings.fps_tier}fps output will be "
+            "frame-duplicated to fill the timeline, not genuinely smoother motion."
         ))
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="tiktok_auto_edit_"))
@@ -275,7 +281,8 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 music_path=str(music_path) if music_path else None,
                 music_volume=settings.music_volume,
                 orig_volume=settings.orig_volume,
-                four_k_60fps=settings.four_k_60fps,
+                resolution_tier=settings.resolution_tier,
+                fps_tier=settings.fps_tier,
                 focus_x=focus_x,
             )
 
@@ -321,7 +328,8 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     height=info.height,
                     aspect=settings.aspect,
                     music_path=None,
-                    four_k_60fps=settings.four_k_60fps,
+                    resolution_tier=settings.resolution_tier,
+                    fps_tier=settings.fps_tier,
                     focus_x=snippet_focus_x,
                 )
                 snippet_clips.append((str(snippet_path), snippet_duration))

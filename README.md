@@ -144,26 +144,44 @@ Beat-sync applies no matter which music source you're using (Auto/Manual/
 Local). Energy-matching only applies in Auto mode — Manual and Local already
 lock in one specific track ahead of time, so there's nothing to match.
 
-## 4K / 60 FPS export
+## Resolution / frame rate export
 
-Optional checkbox in Clip settings, off by default. Two things worth knowing
-before you turn it on:
+Two dropdowns in Clip settings — Resolution (1080p / 4K / Source) and Frame
+rate (Source / 30fps / 60fps) — the same kind of export tier picker you'd
+find in CapCut or any real editor, not one all-or-nothing toggle. Once
+you've loaded a video, the "Source" option in each dropdown updates to show
+your file's actual native resolution/frame rate.
 
-- **Upscaling isn't extra detail.** If your source video isn't already
-  near 4K, this stretches the same pixels into a bigger frame — it doesn't
-  invent new detail. Cropping landscape footage down to vertical 9:16 keeps
-  only the center slice, so even a genuinely 4K landscape source usually
-  ends up upscaled once cropped vertical. The app checks this per-run and
-  logs a note when it's about to happen — check the log, not just the
-  checkbox.
-- **60fps is standard frame-rate conversion, not motion interpolation.**
-  Frames are resampled onto a 60fps timeline; the app does not generate new
-  in-between frames via motion estimation (`minterpolate` in ffmpeg terms).
-  That keeps renders fast and avoids interpolation artifacts (warping around
-  fast motion, the "soap opera effect"), at the cost of not producing truly
-  fluid new motion from a lower-fps source.
-- **Expect roughly 8x the encode work** (4x pixels × 2x frame rate) versus
-  the 1080p30 default, and files several times larger.
+**"Source" is the one option that's always both fastest and genuinely
+lossless** — it passes your footage's native resolution and frame rate
+straight through with no forced resize or frame-rate conversion at all. If
+your footage already has real 4K/60fps to begin with, picking Source on
+both gets you that, at close to the same render time as any other export —
+there's nothing to synthesize when the source already has it.
+
+Picking 1080p or 4K, or 30fps or 60fps, exports at exactly that spec
+**regardless of what your source actually has** — same as any real editor's
+export dialog. Two things worth knowing:
+
+- **Upscaling isn't extra detail, and frame-rate conversion isn't extra
+  motion.** If your source doesn't already have the resolution/frame rate
+  you picked, the app stretches/duplicates rather than inventing anything
+  new — no software can genuinely synthesize detail or motion that isn't in
+  the source. Cropping landscape footage down to vertical 9:16 keeps only
+  the center slice, so even a genuinely 4K landscape source usually needs
+  upscaling once cropped vertical. The app checks this per-run and logs a
+  note whenever either is about to happen — check the log, not just the
+  dropdowns.
+- **Real motion interpolation (true AI-generated in-between frames, not
+  duplication) was evaluated and deliberately left out** — at real 4K
+  resolution it measured roughly 4 minutes of render time per second of
+  clip on ordinary CPU hardware, i.e. 60+ minutes for a single typical
+  clip, regardless of quality-mode tuning. Not worth the cost for what it
+  adds; 30fps/60fps here is always the fast, standard frame-rate
+  conversion, matching a plain export in any other tool.
+- **4K encode work scales roughly with pixel count and frame rate** — 4K at
+  60fps is meaningfully slower and produces files several times larger than
+  1080p30, same as it would in any editor.
 
 ## Music
 

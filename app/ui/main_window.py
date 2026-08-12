@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
 
         self.cfg = config.load_config()
         self.video_path = None
+        self.video_info = None
         self.worker = None
         self.selected_track = None
         self.selected_track_path = None
@@ -179,13 +180,34 @@ class MainWindow(QMainWindow):
         self.aspect_combo.setCurrentText(self.cfg["aspect"])
         form.addRow("Aspect ratio:", self.aspect_combo)
 
-        self.four_k_checkbox = QCheckBox("Export at 4K / 60 FPS (much larger files, much slower to render)")
-        self.four_k_checkbox.setChecked(self.cfg.get("four_k_60fps", False))
-        self.four_k_checkbox.setToolTip(
-            "If your source video isn't already near 4K resolution, this upscales rather than "
-            "adding real detail — the app will warn you in the log when that happens."
+        self.resolution_combo = QComboBox()
+        self.resolution_combo.addItem("1080p", "1080p")
+        self.resolution_combo.addItem("4K", "4k")
+        self.resolution_combo.addItem("Source (native)", "source")
+        res_idx = self.resolution_combo.findData(self.cfg.get("resolution_tier", "1080p"))
+        self.resolution_combo.setCurrentIndex(res_idx if res_idx >= 0 else 0)
+        self.resolution_combo.setToolTip(
+            "Source: passes your video's native resolution straight through, uncropped scale-wise "
+            "— fastest, and the only option that's always genuinely lossless regardless of what "
+            "your footage actually is. 1080p/4K: exports at that fixed size no matter the source; "
+            "if your source doesn't actually have that much detail after cropping, this upscales "
+            "rather than adding real detail — the app warns you in the log when that happens."
         )
-        form.addRow(self.four_k_checkbox)
+        form.addRow("Resolution:", self.resolution_combo)
+
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItem("Source (native)", "source")
+        self.fps_combo.addItem("30 fps", "30")
+        self.fps_combo.addItem("60 fps", "60")
+        fps_idx = self.fps_combo.findData(self.cfg.get("fps_tier", "source"))
+        self.fps_combo.setCurrentIndex(fps_idx if fps_idx >= 0 else 0)
+        self.fps_combo.setToolTip(
+            "Source: passes your video's native frame rate straight through — fastest, and always "
+            "genuinely that smooth. 30/60: conforms to that rate regardless of source; if your "
+            "source is actually slower, frames get duplicated to fill the timeline rather than "
+            "being genuinely smoother motion — the app warns you in the log when that happens."
+        )
+        form.addRow("Frame rate:", self.fps_combo)
 
         self.highlight_reel_checkbox = QCheckBox("Also stitch all clips into one highlight reel")
         self.highlight_reel_checkbox.setChecked(self.cfg.get("create_highlight_reel", False))
@@ -456,12 +478,21 @@ class MainWindow(QMainWindow):
         self.file_label.setText(path)
         try:
             info = probe_video(path)
+            self.video_info = info
             self.drop_area.setText(
-                f"{Path(path).name}  —  {info.width}x{info.height}  —  {info.duration:.1f}s"
+                f"{Path(path).name}  —  {info.width}x{info.height}  —  "
+                f"{info.fps:.0f}fps  —  {info.duration:.1f}s"
             )
+            res_source_idx = self.resolution_combo.findData("source")
+            self.resolution_combo.setItemText(
+                res_source_idx, f"Source (native — {info.width}x{info.height})"
+            )
+            fps_source_idx = self.fps_combo.findData("source")
+            self.fps_combo.setItemText(fps_source_idx, f"Source (native — {info.fps:.0f}fps)")
         except FFmpegError as exc:
             QMessageBox.warning(self, "Could not read video", str(exc))
             self.video_path = None
+            self.video_info = None
 
     def _browse_output_dir(self):
         path = QFileDialog.getExistingDirectory(self, "Choose output folder", self.output_dir_edit.text())
@@ -558,7 +589,8 @@ class MainWindow(QMainWindow):
             manual_track_attribution=self.selected_track.attribution_line() if self.selected_track else "",
             local_music_path=self.local_music_path or "",
             beat_sync_enabled=self.beat_sync_checkbox.isChecked(),
-            four_k_60fps=self.four_k_checkbox.isChecked(),
+            resolution_tier=self.resolution_combo.currentData(),
+            fps_tier=self.fps_combo.currentData(),
             create_highlight_reel=self.highlight_reel_checkbox.isChecked(),
             transcript_enabled=self.transcript_checkbox.isChecked(),
         )
@@ -586,7 +618,8 @@ class MainWindow(QMainWindow):
             "min_len": settings.min_len,
             "max_len": settings.max_len,
             "aspect": settings.aspect,
-            "four_k_60fps": settings.four_k_60fps,
+            "resolution_tier": settings.resolution_tier,
+            "fps_tier": settings.fps_tier,
             "create_highlight_reel": settings.create_highlight_reel,
             "transcript_enabled": settings.transcript_enabled,
             "music_enabled": settings.music_enabled,

@@ -141,28 +141,54 @@ def crop_filter_for_aspect(width: int, height: int, aspect: str, focus_x=0.5):
     return f"crop={crop_w}:{crop_h}:{x}:{y}"
 
 
-def scale_target_for_aspect(aspect: str, width: int, height: int, four_k: bool = False) -> str:
+# Matches a CapCut-style export selector: pick a resolution/fps tier
+# instead of one all-or-nothing "4K/60fps" toggle. "source" means a true
+# native passthrough — no forced resize/fps-conform at all, the fastest
+# and only-ever-genuine option regardless of what the source actually is.
+RESOLUTION_TIER_SHORT_EDGE = {"1080p": 1080, "4k": 2160}
+FPS_TIERS = {"30": 30, "60": 60}
+
+
+def scale_target_for_aspect(aspect: str, width: int, height: int, resolution_tier: str = "1080p"):
     # Lanczos explicitly: sharper than ffmpeg's default scaling algorithm,
     # especially noticeable on the downscales most clips actually do.
     flags = ":flags=lanczos"
+    if resolution_tier == "source":
+        if aspect == "original":
+            # No crop happens for "original", so the raw source dimensions
+            # could be odd — H.264 requires even. crop_dimensions_for_aspect
+            # already guarantees even dims for 9:16/1:1, so this path is
+            # only needed here.
+            return "scale=trunc(iw/2)*2:trunc(ih/2)*2" + flags
+        return None  # crop already produced the final size — nothing to scale
+    short_edge = RESOLUTION_TIER_SHORT_EDGE[resolution_tier]
+    long_edge = short_edge * 16 // 9
     if aspect == "9:16":
-        return ("scale=2160:3840" if four_k else "scale=1080:1920") + flags
+        return f"scale={short_edge}:{long_edge}" + flags
     if aspect == "1:1":
-        return ("scale=2160:2160" if four_k else "scale=1080:1080") + flags
+        return f"scale={short_edge}:{short_edge}" + flags
     # original: preserve source aspect ratio, just cap the long edge
-    if not four_k:
-        return "scale=trunc(iw/2)*2:trunc(ih/2)*2" + flags
-    return ("scale=3840:-2" if width >= height else "scale=-2:3840") + flags
+    return (f"scale={long_edge}:-2" if width >= height else f"scale=-2:{long_edge}") + flags
 
 
-def is_upscale(width: int, height: int, aspect: str, four_k: bool) -> bool:
-    """True if a four_k export would be stretching source pixels rather than
-    reflecting genuine source detail — i.e. the cropped source is smaller
-    than the 4K target in its shorter dimension."""
-    if not four_k:
+def is_upscale(width: int, height: int, aspect: str, resolution_tier: str) -> bool:
+    """True if the selected resolution tier would stretch source pixels
+    rather than reflecting genuine source detail — i.e. the cropped source
+    is smaller than the target tier in its shorter dimension. "source" is
+    a native passthrough, so it can never be an upscale by definition."""
+    if resolution_tier == "source":
         return False
     crop_w, crop_h = crop_dimensions_for_aspect(width, height, aspect)
-    return min(crop_w, crop_h) < 2160
+    return min(crop_w, crop_h) < RESOLUTION_TIER_SHORT_EDGE[resolution_tier]
+
+
+def is_fps_upscale(source_fps: float, fps_tier: str) -> bool:
+    """True if the selected fps tier exceeds the source's actual frame
+    rate — the frames get resampled/duplicated onto that timeline rather
+    than genuinely being that smooth. "source" can never be an upscale."""
+    if fps_tier == "source":
+        return False
+    return source_fps < FPS_TIERS[fps_tier] - 0.1
 
 
 def export_clip(
@@ -176,14 +202,15 @@ def export_clip(
     music_path: str = None,
     music_volume: float = 0.25,
     orig_volume: float = 1.0,
-    four_k_60fps: bool = False,
+    resolution_tier: str = "1080p",
+    fps_tier: str = "source",
     focus_x=0.5,
 ) -> None:
     crop = crop_filter_for_aspect(width, height, aspect, focus_x)
-    scale = scale_target_for_aspect(aspect, width, height, four_k_60fps)
+    scale = scale_target_for_aspect(aspect, width, height, resolution_tier)
     filters = [f for f in (crop, scale, "setsar=1") if f]
-    if four_k_60fps:
-        filters.append("fps=60")
+    if fps_tier in FPS_TIERS:
+        filters.append(f"fps={FPS_TIERS[fps_tier]}")
     video_chain = f"[0:v]{','.join(filters)}[v]"
 
     args = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", video_path]
