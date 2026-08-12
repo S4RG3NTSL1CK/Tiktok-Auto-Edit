@@ -16,15 +16,18 @@ class EditTemplate:
     orig_volume: float
     create_highlight_reel: bool
     transcript_enabled: bool
+    color_grade: str = "none"
+    transition_style: str = "fade"
 
 
 # Each template is a coherent pacing/structure preset — clip length, cut
 # count, how hard cuts snap to the beat, how loud music sits under the
-# original audio, and whether hook-detection/highlight-reel are worth the
-# extra render time for that style of content. Deliberately does NOT
-# touch aspect ratio, resolution/fps, or which music/tags/provider to
-# use — those are separate choices the user makes on their own, a
-# template only governs the editing style itself.
+# original audio, whether hook-detection/highlight-reel are worth the
+# extra render time, a color-grade look, and (for the reel) a crossfade
+# transition style. Deliberately does NOT touch aspect ratio, resolution/
+# fps, or which music/tags/provider to use — those are separate choices
+# the user makes on their own, a template only governs the editing style
+# itself.
 TEMPLATES = [
     EditTemplate(
         key="fast_highlights",
@@ -37,6 +40,7 @@ TEMPLATES = [
         beat_sync_enabled=True, music_instrumental_only=True, music_energy="high",
         music_volume=0.25, orig_volume=1.0,
         create_highlight_reel=True, transcript_enabled=True,
+        color_grade="vibrant", transition_style="wiperight",
     ),
     EditTemplate(
         key="cinematic",
@@ -49,6 +53,7 @@ TEMPLATES = [
         beat_sync_enabled=False, music_instrumental_only=True, music_energy="verylow",
         music_volume=0.12, orig_volume=1.0,
         create_highlight_reel=False, transcript_enabled=False,
+        color_grade="cinematic", transition_style="fade",
     ),
     EditTemplate(
         key="music_video",
@@ -61,6 +66,7 @@ TEMPLATES = [
         beat_sync_enabled=True, music_instrumental_only=False, music_energy="veryhigh",
         music_volume=0.3, orig_volume=0.9,
         create_highlight_reel=True, transcript_enabled=False,
+        color_grade="punchy", transition_style="circleopen",
     ),
     EditTemplate(
         key="podcast",
@@ -73,6 +79,7 @@ TEMPLATES = [
         beat_sync_enabled=False, music_instrumental_only=True, music_energy="verylow",
         music_volume=0.10, orig_volume=1.0,
         create_highlight_reel=False, transcript_enabled=True,
+        color_grade="warm", transition_style="fade",
     ),
     EditTemplate(
         key="gaming",
@@ -85,6 +92,7 @@ TEMPLATES = [
         beat_sync_enabled=True, music_instrumental_only=True, music_energy="high",
         music_volume=0.22, orig_volume=1.0,
         create_highlight_reel=True, transcript_enabled=False,
+        color_grade="punchy", transition_style="smoothleft",
     ),
 ]
 

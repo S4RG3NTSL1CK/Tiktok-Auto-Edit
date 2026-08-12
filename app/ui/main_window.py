@@ -226,6 +226,38 @@ class MainWindow(QMainWindow):
         )
         form.addRow("Frame rate:", self.fps_combo)
 
+        self.color_grade_combo = QComboBox()
+        for value, label in [
+            ("none", "None"), ("cinematic", "Cinematic"), ("vibrant", "Vibrant"),
+            ("warm", "Warm"), ("punchy", "Punchy"),
+        ]:
+            self.color_grade_combo.addItem(label, value)
+        grade_idx = self.color_grade_combo.findData(self.cfg.get("color_grade", "none"))
+        self.color_grade_combo.setCurrentIndex(grade_idx if grade_idx >= 0 else 0)
+        self.color_grade_combo.setToolTip(
+            "Applies a subtle color-grade look to every clip (and the highlight reel). "
+            "Cinematic: desaturated, moody, gentle vignette. Vibrant: punchy and saturated. "
+            "Warm: gentle warm tone, good for talking-head content. Punchy: high-contrast "
+            "with a touch of sharpening. None leaves footage untouched."
+        )
+        form.addRow("Color grade:", self.color_grade_combo)
+
+        self.transition_combo = QComboBox()
+        for value, label in [
+            ("fade", "Fade"), ("dissolve", "Dissolve"), ("wiperight", "Wipe"),
+            ("slideleft", "Slide"), ("circleopen", "Circle"), ("smoothleft", "Smooth"),
+            ("radial", "Radial"),
+        ]:
+            self.transition_combo.addItem(label, value)
+        trans_idx = self.transition_combo.findData(self.cfg.get("transition_style", "fade"))
+        self.transition_combo.setCurrentIndex(trans_idx if trans_idx >= 0 else 0)
+        self.transition_combo.setToolTip(
+            "Crossfade style used between snippets in the highlight reel (has no effect if "
+            "that's off). Fade is the gentlest/most classic; the others give the cuts more "
+            "character."
+        )
+        form.addRow("Reel transition:", self.transition_combo)
+
         self.highlight_reel_checkbox = QCheckBox("Also stitch all clips into one highlight reel")
         self.highlight_reel_checkbox.setChecked(self.cfg.get("create_highlight_reel", False))
         self.highlight_reel_checkbox.setToolTip(
@@ -504,6 +536,12 @@ class MainWindow(QMainWindow):
         self.orig_vol_slider.setValue(int(t.orig_volume * 100))
         self.highlight_reel_checkbox.setChecked(t.create_highlight_reel)
         self.transcript_checkbox.setChecked(t.transcript_enabled)
+        grade_idx = self.color_grade_combo.findData(t.color_grade)
+        if grade_idx >= 0:
+            self.color_grade_combo.setCurrentIndex(grade_idx)
+        trans_idx = self.transition_combo.findData(t.transition_style)
+        if trans_idx >= 0:
+            self.transition_combo.setCurrentIndex(trans_idx)
 
     def _browse_video(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select video", "", "MP4 videos (*.mp4)")
@@ -630,6 +668,8 @@ class MainWindow(QMainWindow):
             fps_tier=self.fps_combo.currentData(),
             create_highlight_reel=self.highlight_reel_checkbox.isChecked(),
             transcript_enabled=self.transcript_checkbox.isChecked(),
+            color_grade=self.color_grade_combo.currentData(),
+            transition_style=self.transition_combo.currentData(),
         )
 
     def _start_generation(self):
@@ -660,6 +700,8 @@ class MainWindow(QMainWindow):
             "fps_tier": settings.fps_tier,
             "create_highlight_reel": settings.create_highlight_reel,
             "transcript_enabled": settings.transcript_enabled,
+            "color_grade": settings.color_grade,
+            "transition_style": settings.transition_style,
             "music_enabled": settings.music_enabled,
             "music_provider": settings.music_provider,
             "music_tags": settings.music_tags,

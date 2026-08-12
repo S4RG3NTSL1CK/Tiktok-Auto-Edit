@@ -24,6 +24,8 @@ DEFAULTS = {
     "resolution_tier": "1080p",
     "fps_tier": "source",
     "edit_template": "",
+    "color_grade": "none",
+    "transition_style": "fade",
     "create_highlight_reel": False,
     "transcript_enabled": False,
     "audd_api_token": "",

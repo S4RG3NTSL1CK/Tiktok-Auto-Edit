@@ -92,10 +92,20 @@ causing visible unwanted sway; it's gone now). The resulting sequence is
 also heavily smoothed and damped toward center, so any real adjustment is
 gradual and partial, not a full pan. If no face is found anywhere in the
 whole clip (pure b-roll, no people), the crop uses one stable motion-based
-estimate for the entire clip instead of chasing noise. This only affects
-the horizontal offset; vertical framing is unaffected (a 9:16 crop from a
-landscape source keeps the full source height). Aspect mode "original"
-skips this entirely since no horizontal crop happens in that mode.
+estimate for the entire clip instead of chasing noise.
+
+On top of all that, the crop is **hard-capped at 12% of frame width from
+dead center, no matter what** — found and fixed a real gap where this cap
+didn't apply evenly: the no-face fallback used a raw motion estimate with
+no centering bias at all, so a handful of clips (the ones with no
+detectable face) could still land noticeably off-center even after the
+smoothing/damping fix covered the face-tracking path. The clamp now
+applies as a final step on every code path, so a dramatically off-center
+result is no longer possible regardless of what any underlying signal
+says. This only affects the horizontal offset; vertical framing is
+unaffected (a 9:16 crop from a landscape source keeps the full source
+height). Aspect mode "original" skips this entirely since no horizontal
+crop happens in that mode.
 
 ## Highlight reel
 
@@ -125,9 +135,20 @@ already chose.
 
 ## Video/music alignment
 
-Two things happen automatically to make the video and its music feel like
-they belong together, not just overlaid:
+Three things happen automatically to make the video and its music feel
+like they belong together, not just overlaid:
 
+- **Best-segment picking (always on):** a chosen track no longer always
+  plays from its own beginning in every clip — the app analyzes the
+  track's own audio-energy curve (the same "find the highest-energy
+  sub-window" search already used to pick video highlights) and starts
+  the music from whichever part of the track actually best matches that
+  clip's length, favoring its most energetic section (a chorus/drop)
+  over an intro or quiet build-up. Applies independently per clip — a
+  6-clip run picks a different, well-matched moment in the track for each
+  one rather than reusing the same offset — and to the highlight reel's
+  single track too, sized to the reel's full length. Works with any music
+  source (Auto/Manual/Local).
 - **Beat-sync (on by default):** once a track is chosen for a clip, the app
   detects its beat grid (spectral-flux onset detection + autocorrelation
   tempo estimate + phase-locked beat grid — hand-rolled on `numpy`/`scipy`,
@@ -303,27 +324,44 @@ python main.py
 
 **Edit style** dropdown at the top of Clip settings — five built-in
 presets, each a coherent bundle of pacing/structure settings (clip length,
-cut count, beat-sync, highlight reel, hook detection, music balance)
-applied as a starting point. Everything a template sets stays editable
-afterward — picking one doesn't lock the individual controls. Deliberately
-doesn't touch aspect ratio, resolution/fps, or which music/tags/provider
-to use — those stay separate choices, so "video, music, and edit style"
-really are three independent picks, matching how the app already works.
+cut count, beat-sync, highlight reel, hook detection, music balance, color
+grade, and reel transition style) applied as a starting point. Everything
+a template sets stays editable afterward — picking one doesn't lock the
+individual controls. Deliberately doesn't touch aspect ratio, resolution/
+fps, or which music/tags/provider to use — those stay separate choices, so
+"video, music, and edit style" really are three independent picks,
+matching how the app already works.
 
 - **Fast-Paced Highlights** — short, punchy clips, hard beat-synced cuts,
-  highlight reel on, hook detection on. General-purpose default.
+  highlight reel on, hook detection on, vibrant color grade, wipe
+  transitions. General-purpose default.
 - **Cinematic Story** — longer, fewer clips that let dialogue and pacing
-  breathe. Music stays subtle, cuts aren't forced onto the beat.
+  breathe. Music stays subtle, cuts aren't forced onto the beat, desaturated
+  moody color grade with a gentle vignette.
 - **Music Video / Beat Drop** — very short, rapid cuts tightly synced to
-  strong beats, built around a highlight reel. Wants high-energy music
-  with vocals, not instrumental.
+  strong beats, built around a highlight reel, punchy color grade, circle
+  transitions. Wants high-energy music with vocals, not instrumental.
 - **Podcast / Talking Head** — clips built around strong spoken hooks with
-  room for a full thought; quiet background music.
+  room for a full thought; quiet background music, warm color grade.
 - **Gaming / Action Highlights** — medium clips for fast on-screen action,
-  beat-synced cuts, highlight reel.
+  beat-synced cuts, highlight reel, punchy color grade, smooth transitions.
 
 Picking **Custom (manual settings)** leaves every control exactly as you
 last set it — templates never apply unless explicitly chosen.
+
+**Color grade** and **Reel transition** are also independent dropdowns you
+can set yourself regardless of template:
+
+- **Color grade** — None / Cinematic (desaturated, moody, gentle vignette)
+  / Vibrant (punchy, saturated) / Warm (gentle warm tone, good for
+  talking-head content) / Punchy (high-contrast with a touch of
+  sharpening). Applies to every clip and the highlight reel, via standard
+  ffmpeg color filters (`eq`/`vignette`/`unsharp`) — no new dependency,
+  and no risk of clipping/artifacting since the adjustments are kept
+  subtle.
+- **Reel transition** — Fade / Dissolve / Wipe / Slide / Circle / Smooth /
+  Radial, the crossfade style used between snippets in the highlight reel
+  (`ffmpeg`'s `xfade` filter — has no effect if the reel is off).
 
 ## Usage
 

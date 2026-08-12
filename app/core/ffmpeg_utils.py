@@ -191,6 +191,19 @@ def is_fps_upscale(source_fps: float, fps_tier: str) -> bool:
     return source_fps < FPS_TIERS[fps_tier] - 0.1
 
 
+# Named color-grade looks, each a plain ffmpeg eq/vignette/unsharp filter
+# chain — no new dependency, all standard libavfilter filters already in
+# the bundled ffmpeg binary. Kept subtle enough not to clip/artifact on
+# already-compressed source footage.
+COLOR_GRADE_FILTERS = {
+    "none": None,
+    "cinematic": "eq=contrast=1.1:saturation=0.85:gamma=0.95,vignette=PI/10",
+    "vibrant": "eq=contrast=1.15:saturation=1.35:brightness=0.02",
+    "warm": "eq=contrast=1.05:saturation=1.1:gamma_r=1.05:gamma_b=0.95",
+    "punchy": "eq=contrast=1.2:saturation=1.2:brightness=0.01,unsharp=5:5:0.8:5:5:0.0",
+}
+
+
 def export_clip(
     video_path: str,
     output_path: str,
@@ -205,10 +218,13 @@ def export_clip(
     resolution_tier: str = "1080p",
     fps_tier: str = "source",
     focus_x=0.5,
+    color_grade: str = "none",
+    music_start_offset: float = 0.0,
 ) -> None:
     crop = crop_filter_for_aspect(width, height, aspect, focus_x)
     scale = scale_target_for_aspect(aspect, width, height, resolution_tier)
-    filters = [f for f in (crop, scale, "setsar=1") if f]
+    grade = COLOR_GRADE_FILTERS.get(color_grade)
+    filters = [f for f in (crop, scale, "setsar=1", grade) if f]
     if fps_tier in FPS_TIERS:
         filters.append(f"fps={FPS_TIERS[fps_tier]}")
     video_chain = f"[0:v]{','.join(filters)}[v]"
@@ -218,10 +234,11 @@ def export_clip(
     if music_path:
         args += ["-i", music_path]
         fade_start = max(duration - 1.0, 0.0)
+        music_end = music_start_offset + duration
         filter_complex = (
             f"{video_chain};"
             f"[0:a]volume={orig_volume}[oa];"
-            f"[1:a]atrim=0:{duration:.3f},asetpts=PTS-STARTPTS,"
+            f"[1:a]atrim={music_start_offset:.3f}:{music_end:.3f},asetpts=PTS-STARTPTS,"
             f"afade=t=out:st={fade_start:.3f}:d=1,volume={music_volume}[ma];"
             f"[oa][ma]amix=inputs=2:duration=first:dropout_transition=1,"
             f"loudnorm=I=-14:TP=-1.5:LRA=11[a]"
@@ -248,18 +265,21 @@ def mix_music_over_video(
     duration: float,
     music_volume: float = 0.25,
     orig_volume: float = 1.0,
+    music_start_offset: float = 0.0,
 ) -> None:
     """Mixes ONE music track over an already-assembled video's full
     duration (used for the highlight reel, so the whole thing plays one
     continuous track instead of switching songs at every snippet cut).
     Video stream is copied through untouched — only audio is touched, so
     this doesn't re-encode/re-crop video that's already in its final form.
-    Assumes `music_path` is at least `duration` seconds; callers search for
-    a track with that minimum (e.g. get_music_for_clip)."""
+    Assumes `music_path` has at least `duration` seconds available from
+    `music_start_offset` onward; callers search for a track/offset with
+    that minimum (e.g. get_music_for_clip + a best-segment search)."""
     fade_start = max(duration - 1.5, 0.0)
+    music_end = music_start_offset + duration
     filter_complex = (
         f"[0:a]volume={orig_volume}[oa];"
-        f"[1:a]atrim=0:{duration:.3f},asetpts=PTS-STARTPTS,"
+        f"[1:a]atrim={music_start_offset:.3f}:{music_end:.3f},asetpts=PTS-STARTPTS,"
         f"afade=t=out:st={fade_start:.3f}:d=1.5,volume={music_volume}[ma];"
         f"[oa][ma]amix=inputs=2:duration=first:dropout_transition=1,"
         f"loudnorm=I=-14:TP=-1.5:LRA=11[a]"
@@ -274,7 +294,19 @@ def mix_music_over_video(
     run_ffmpeg(args)
 
 
-def stitch_clips_with_crossfade(clips: list, output_path: str, transition_duration: float = 0.4) -> None:
+# xfade transition names — all standard libavfilter transitions already in
+# the bundled ffmpeg binary, verified working directly. "fade" is the
+# gentle default; the others give each edit style its own cut character.
+VALID_TRANSITION_STYLES = {
+    "fade", "dissolve", "wiperight", "wipeleft", "wipeup", "wipedown",
+    "slideleft", "slideright", "slideup", "slidedown",
+    "smoothleft", "smoothright", "circleopen", "circleclose", "radial",
+}
+
+
+def stitch_clips_with_crossfade(
+    clips: list, output_path: str, transition_duration: float = 0.4, transition_style: str = "fade",
+) -> None:
     """Concatenates already-rendered clips (same resolution/fps/audio format,
     as produced by export_clip) into one video, crossfading video and audio
     at each join instead of hard-cutting. `clips` is a list of
@@ -288,6 +320,7 @@ def stitch_clips_with_crossfade(clips: list, output_path: str, transition_durati
         run_ffmpeg(["-i", clips[0][0], "-c", "copy", "-movflags", "+faststart", output_path])
         return
 
+    style = transition_style if transition_style in VALID_TRANSITION_STYLES else "fade"
     xfade_dur = min(transition_duration, max(min(d for _, d in clips) / 2, 0.1))
 
     args = []
@@ -301,7 +334,7 @@ def stitch_clips_with_crossfade(clips: list, output_path: str, transition_durati
         offset = cumulative - xfade_dur
         next_v, next_a = f"v{i}", f"a{i}"
         filter_parts.append(
-            f"[{v_label}][{i}:v]xfade=transition=fade:duration={xfade_dur:.3f}:offset={offset:.3f}[{next_v}]"
+            f"[{v_label}][{i}:v]xfade=transition={style}:duration={xfade_dur:.3f}:offset={offset:.3f}[{next_v}]"
         )
         filter_parts.append(f"[{a_label}][{i}:a]acrossfade=d={xfade_dur:.3f}[{next_a}]")
         v_label, a_label = next_v, next_a

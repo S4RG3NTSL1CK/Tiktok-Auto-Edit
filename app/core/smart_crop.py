@@ -44,6 +44,22 @@ def _motion_center_x(gray_frames: list) -> float:
     return weighted_center / len(col_sums)
 
 
+# Hard ceiling on how far the crop is ever allowed to move from dead
+# center (as a fraction of frame width), applied as the very last step
+# no matter which code path produced the value. Exists because damping
+# alone still lets a sustained, confident off-center signal pull the
+# result fairly far from center over time, and the no-face motion
+# fallback previously had no centering bias applied to it at all —
+# confirmed as the actual cause of clips still coming out uncentered
+# after the smoothing/damping fix. This clamp makes a dramatically
+# off-center result impossible regardless of what any signal says.
+MAX_CENTER_DEVIATION = 0.12
+
+
+def _clamp_to_center(fx: float) -> float:
+    return float(np.clip(fx, 0.5 - MAX_CENTER_DEVIATION, 0.5 + MAX_CENTER_DEVIATION))
+
+
 def find_horizontal_focus_track(video_path: str, start: float, end: float, sample_interval: float = 2.5) -> list:
     """Returns [(t_relative_to_start, focus_x), ...] tracking where the
     subject is horizontally, sampled roughly every `sample_interval`
@@ -59,14 +75,17 @@ def find_horizontal_focus_track(video_path: str, start: float, end: float, sampl
     is, so chasing it per-sample looked like drifting/swaying rather than
     tracking). A sample with no face decays back toward center rather than
     holding an old off-center position indefinitely. The whole sequence is
-    then heavily smoothed and damped toward center, so any real movement
-    is gradual and partial rather than a full, sudden pan.
+    then heavily smoothed and damped toward center, and every value —
+    including the no-face-anywhere fallback below — is hard-clamped to
+    MAX_CENTER_DEVIATION of center as a final guarantee.
 
     If NO face is found anywhere in the whole clip (pure b-roll, no
     people), falls back to a single static motion-weighted estimate for
     the entire clip instead of time-varying — faceless content doesn't
     have a "subject" to chase, so a stable single crop is more appropriate
-    than time-varying noise.
+    than time-varying noise. That estimate gets the same centering clamp
+    as everything else, since raw motion saliency has no reason to be
+    anywhere near center on its own.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -107,17 +126,21 @@ def find_horizontal_focus_track(video_path: str, start: float, end: float, sampl
             return [(0.0, 0.5)]
 
         if not any_face_found:
-            return [(0.0, _motion_center_x(gray_frames))]
+            return [(0.0, _clamp_to_center(_motion_center_x(gray_frames)))]
 
         # Heavy smoothing + damping toward center: a strong bias toward
         # staying centered that only drifts for a sustained, confident
-        # reason, not single-sample noise.
+        # reason, not single-sample noise. Seeded at 0.5 (not the raw
+        # first sample) so even an early off-center face detection gets
+        # pulled through the same smoothing as everything else, rather
+        # than anchoring the whole sequence's starting point.
         alpha = 0.12
         damping = 0.5
-        smoothed = [raw_track[0][1]]
-        for _, fx in raw_track[1:]:
+        smoothed = [0.5]
+        for _, fx in raw_track:
             smoothed.append(alpha * fx + (1 - alpha) * smoothed[-1])
-        damped = [0.5 + (v - 0.5) * damping for v in smoothed]
+        smoothed = smoothed[1:]
+        damped = [_clamp_to_center(0.5 + (v - 0.5) * damping) for v in smoothed]
 
         return [(t, fx) for (t, _), fx in zip(raw_track, damped)]
     finally:

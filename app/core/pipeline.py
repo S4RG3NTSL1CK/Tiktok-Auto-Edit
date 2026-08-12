@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 
 from . import beat_align, ffmpeg_utils
 from .audio_energy import compute_energy_curve, energy_in_range
@@ -83,6 +84,8 @@ class PipelineSettings:
     fps_tier: str = "source"        # "source" | "30" | "60"
     create_highlight_reel: bool = False
     transcript_enabled: bool = False
+    color_grade: str = "none"        # "none" | "cinematic" | "vibrant" | "warm" | "punchy"
+    transition_style: str = "fade"   # reel crossfade style, see ffmpeg_utils.VALID_TRANSITION_STYLES
 
 
 @dataclass
@@ -203,19 +206,29 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
         cache_dir = default_cache_dir()
         used_track_keys = set()
         used_local_paths = set()
-        beat_cache = {}
+        music_analysis_cache = {}
         results = []
         attributions = []
 
-        def get_beat_grid(music_file_path: str):
-            if music_file_path not in beat_cache:
-                beat_wav = tmp_dir / f"beatsrc_{len(beat_cache)}.wav"
+        def get_music_analysis(music_file_path: str):
+            """Returns (bpm, beat_times, downbeat_times, energy_times,
+            energy_values, track_duration) for a music file, cached by
+            path — one audio extraction serves both beat-sync and picking
+            the track's own best-matching segment (its own energy curve),
+            instead of always starting every track from its beginning."""
+            if music_file_path not in music_analysis_cache:
+                analysis_wav = tmp_dir / f"musicsrc_{len(music_analysis_cache)}.wav"
                 try:
-                    ffmpeg_utils.extract_audio_wav(music_file_path, str(beat_wav))
-                    beat_cache[music_file_path] = beat_align.detect_beats(str(beat_wav))
+                    ffmpeg_utils.extract_audio_wav(music_file_path, str(analysis_wav))
+                    bpm, beat_times, downbeat_times = beat_align.detect_beats(str(analysis_wav))
+                    energy_times, energy_values = compute_energy_curve(str(analysis_wav))
+                    track_duration = float(sf.info(str(analysis_wav)).duration)
+                    music_analysis_cache[music_file_path] = (
+                        bpm, beat_times, downbeat_times, energy_times, energy_values, track_duration,
+                    )
                 except ffmpeg_utils.FFmpegError:
-                    beat_cache[music_file_path] = (None, None, None)
-            return beat_cache[music_file_path]
+                    music_analysis_cache[music_file_path] = (None, None, None, None, None, 0.0)
+            return music_analysis_cache[music_file_path]
 
         total = len(windows)
         for i, window in enumerate(windows):
@@ -254,17 +267,48 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     attribution_line = f"(music skipped for this clip: {exc})"
 
             clip_start, clip_duration = window.start, window.duration
-            if settings.beat_sync_enabled and music_path:
-                bpm, beat_times, downbeat_times = get_beat_grid(str(music_path))
-                if beat_times is not None:
-                    new_start, new_duration = beat_align.align_window_to_beats(
-                        window.start, window.duration, beat_times, settings.min_len, settings.max_len,
-                        downbeat_times=downbeat_times,
+            music_start_offset = 0.0
+            if music_path:
+                bpm, beat_times, downbeat_times, m_times, m_values, track_duration = get_music_analysis(
+                    str(music_path)
+                )
+
+                # Pick the track's own best-matching (highest-energy)
+                # segment for this clip instead of always starting the
+                # song from its beginning — reuses the same "best
+                # sub-window" search already used to pick video highlights.
+                if m_times is not None and track_duration > 0:
+                    off_start, _off_end = select_snippet_window(
+                        m_times, m_values, 0.0, track_duration, window.duration,
                     )
-                    new_start = max(0.0, min(new_start, info.duration))
-                    new_duration = min(new_duration, info.duration - new_start)
-                    if new_duration >= min(settings.min_len, 5.0):
-                        clip_start, clip_duration = new_start, new_duration
+                    music_start_offset = off_start
+
+                if settings.beat_sync_enabled and beat_times is not None:
+                    # Shift the beat grid to be relative to the chosen
+                    # segment's start, since that's what will actually play
+                    # under the clip — not the track's own beginning.
+                    shifted_beats = beat_times[beat_times >= music_start_offset] - music_start_offset
+                    shifted_downbeats = None
+                    if downbeat_times is not None:
+                        shifted_downbeats = (
+                            downbeat_times[downbeat_times >= music_start_offset] - music_start_offset
+                        )
+                    if len(shifted_beats) >= 2:
+                        new_start, new_duration = beat_align.align_window_to_beats(
+                            window.start, window.duration, shifted_beats, settings.min_len, settings.max_len,
+                            downbeat_times=shifted_downbeats,
+                        )
+                        new_start = max(0.0, min(new_start, info.duration))
+                        new_duration = min(new_duration, info.duration - new_start)
+                        if new_duration >= min(settings.min_len, 5.0):
+                            clip_start, clip_duration = new_start, new_duration
+
+                # Safety clamp: beat-sync may have changed clip_duration
+                # after the segment was picked — make sure the trimmed
+                # segment still has enough track left from the chosen
+                # offset to cover the final duration.
+                if track_duration > 0:
+                    music_start_offset = min(music_start_offset, max(track_duration - clip_duration, 0.0))
 
             # Face-aware crop focus: where to center the vertical/square crop
             # horizontally instead of always centering on the full frame.
@@ -291,6 +335,8 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 resolution_tier=settings.resolution_tier,
                 fps_tier=settings.fps_tier,
                 focus_x=focus_x,
+                color_grade=settings.color_grade,
+                music_start_offset=music_start_offset,
             )
 
             results.append(ClipResult(
@@ -341,14 +387,33 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     reel_attribution = f"(music skipped for reel: {exc})"
 
             reel_beat_times, reel_downbeat_times = None, None
-            if settings.beat_sync_enabled and reel_music_path:
-                _, reel_beat_times, reel_downbeat_times = get_beat_grid(str(reel_music_path))
+            reel_music_start_offset = 0.0
+            reel_track_duration = 0.0
+            if reel_music_path:
+                _, reel_beat_times, reel_downbeat_times, r_times, r_values, reel_track_duration = (
+                    get_music_analysis(str(reel_music_path))
+                )
+                # Best-matching (highest-energy) segment of the track for
+                # the whole reel, instead of always starting at its
+                # beginning.
+                if r_times is not None and reel_track_duration > 0:
+                    off_start, _off_end = select_snippet_window(
+                        r_times, r_values, 0.0, reel_track_duration, target_reel_duration,
+                    )
+                    reel_music_start_offset = off_start
+                if not settings.beat_sync_enabled:
+                    reel_beat_times, reel_downbeat_times = None, None
+
             # Downbeats read as more intentional cut points than any beat;
-            # use them when available, otherwise any detected beat.
+            # use them when available, otherwise any detected beat. Shifted
+            # to be relative to the chosen segment's start, since that's
+            # what will actually play under the reel.
             cut_targets = (
                 reel_downbeat_times if reel_downbeat_times is not None and len(reel_downbeat_times) > 0
                 else reel_beat_times
             )
+            if cut_targets is not None and len(cut_targets) > 0:
+                cut_targets = cut_targets[cut_targets >= reel_music_start_offset] - reel_music_start_offset
 
             xfade_dur = 0.4  # matches stitch_clips_with_crossfade's default
             snippet_clips = []
@@ -394,6 +459,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     resolution_tier=settings.resolution_tier,
                     fps_tier=settings.fps_tier,
                     focus_x=snippet_focus_x,
+                    color_grade=settings.color_grade,
                 )
                 snippet_clips.append((str(snippet_path), snippet_duration))
 
@@ -401,8 +467,18 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             reel_video_path = tmp_dir / "reel_no_music.mp4"
             ffmpeg_utils.stitch_clips_with_crossfade(
                 snippet_clips, str(reel_video_path), transition_duration=xfade_dur,
+                transition_style=settings.transition_style,
             )
             reel_duration = sum(d for _, d in snippet_clips) - max(len(snippet_clips) - 1, 0) * xfade_dur
+
+            # Safety clamp: the snippet durations actually built may differ
+            # slightly from target_reel_duration — make sure the chosen
+            # segment still has enough track left from its offset to cover
+            # the final reel length.
+            if reel_track_duration > 0:
+                reel_music_start_offset = min(
+                    reel_music_start_offset, max(reel_track_duration - reel_duration, 0.0)
+                )
 
             report(99, "Mixing reel music...")
             reel_path = output_dir / "highlight_reel.mp4"
@@ -411,6 +487,7 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     str(reel_video_path), str(reel_music_path), str(reel_path),
                     duration=reel_duration,
                     music_volume=settings.music_volume, orig_volume=settings.orig_volume,
+                    music_start_offset=reel_music_start_offset,
                 )
                 is_local_reel_track = settings.music_source == "local"
                 if reel_attribution and not is_local_reel_track and not reel_attribution.startswith("(music skipped"):
