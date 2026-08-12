@@ -255,6 +255,13 @@ listing every track that needs it. Keep it with the clips if you use them.
   `ATTRIBUTIONS.txt` — the app makes no claim about their license, that's on
   you to know since they're your own files.
 
+  Picking a folder reveals one dropdown per clip (**Clip 1**, **Clip 2**,
+  ... and **Highlight reel**), each defaulting to **Auto (round-robin)** —
+  leave them alone for the existing round-robin behavior, or explicitly pick
+  which exact track plays on which clip. Rows update automatically if you
+  change the number of clips. Any clip left on Auto still round-robins
+  through the tracks not explicitly assigned elsewhere.
+
 Click **Clear** next to whichever mode you used to go back to Auto.
 
 ## Copyright check

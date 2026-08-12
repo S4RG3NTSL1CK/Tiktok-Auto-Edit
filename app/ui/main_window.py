@@ -100,6 +100,9 @@ class MainWindow(QMainWindow):
         self.selected_track = None
         self.selected_track_path = None
         self.local_music_path = None
+        self.local_track_paths = []
+        self.local_track_assignment_combos = []
+        self.local_reel_track_combo = None
         self.update_check_worker = None
         self.update_download_worker = None
         self._pending_update_version = None
@@ -352,6 +355,13 @@ class MainWindow(QMainWindow):
         self.local_music_label = QLabel("No local music selected — you're responsible for the license of your own files.")
         self.local_music_label.setWordWrap(True)
         music_form.addRow(self.local_music_label)
+
+        self.local_assignment_widget = QWidget()
+        self.local_assignment_layout = QVBoxLayout(self.local_assignment_widget)
+        self.local_assignment_layout.setContentsMargins(0, 4, 0, 0)
+        self.local_assignment_widget.setVisible(False)
+        music_form.addRow(self.local_assignment_widget)
+        self.num_clips_spin.valueChanged.connect(self._rebuild_local_track_assignments)
 
         self.music_vol_slider = QSlider(Qt.Horizontal)
         self.music_vol_slider.setRange(0, 100)
@@ -612,6 +622,7 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        self.local_track_paths = []
         self._set_local_music(path, f"Local file: {Path(path).name} — used on every generated clip.")
 
     def _use_local_folder(self):
@@ -622,6 +633,7 @@ class MainWindow(QMainWindow):
         if not tracks:
             QMessageBox.warning(self, "No audio files found", f"No supported audio files found in:\n{path}")
             return
+        self.local_track_paths = tracks
         self._set_local_music(path, f"Local folder: {Path(path).name} ({len(tracks)} tracks) — one picked per clip.")
 
     def _set_local_music(self, path: str, label_text: str):
@@ -630,11 +642,58 @@ class MainWindow(QMainWindow):
         self.clear_local_btn.setEnabled(True)
         self.music_checkbox.setChecked(True)
         self._clear_selected_track()
+        self._rebuild_local_track_assignments()
 
     def _clear_local_music(self):
         self.local_music_path = None
+        self.local_track_paths = []
         self.local_music_label.setText("No local music selected — you're responsible for the license of your own files.")
         self.clear_local_btn.setEnabled(False)
+        self._rebuild_local_track_assignments()
+
+    def _rebuild_local_track_assignments(self):
+        while self.local_assignment_layout.count():
+            item = self.local_assignment_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self.local_track_assignment_combos = []
+        self.local_reel_track_combo = None
+
+        if not self.local_track_paths:
+            self.local_assignment_widget.setVisible(False)
+            return
+
+        header = QLabel("Assign a specific song per clip (optional — leave Auto to round-robin):")
+        header.setWordWrap(True)
+        self.local_assignment_layout.addWidget(header)
+
+        def make_combo():
+            combo = QComboBox()
+            combo.addItem("Auto (round-robin)", "")
+            for t in self.local_track_paths:
+                combo.addItem(t.name, str(t))
+            return combo
+
+        for i in range(self.num_clips_spin.value()):
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(QLabel(f"Clip {i + 1}:"))
+            combo = make_combo()
+            row.addWidget(combo, stretch=1)
+            self.local_track_assignment_combos.append(combo)
+            self.local_assignment_layout.addWidget(row_widget)
+
+        reel_row_widget = QWidget()
+        reel_row = QHBoxLayout(reel_row_widget)
+        reel_row.setContentsMargins(0, 0, 0, 0)
+        reel_row.addWidget(QLabel("Highlight reel:"))
+        self.local_reel_track_combo = make_combo()
+        reel_row.addWidget(self.local_reel_track_combo, stretch=1)
+        self.local_assignment_layout.addWidget(reel_row_widget)
+
+        self.local_assignment_widget.setVisible(True)
 
     def _collect_settings(self) -> PipelineSettings:
         cfg = config.load_config()
@@ -644,6 +703,16 @@ class MainWindow(QMainWindow):
             music_source = "manual"
         else:
             music_source = "auto"
+
+        local_track_assignments = {
+            i: combo.currentData()
+            for i, combo in enumerate(self.local_track_assignment_combos)
+            if combo.currentData()
+        }
+        local_reel_track = (
+            self.local_reel_track_combo.currentData() if self.local_reel_track_combo else ""
+        )
+
         return PipelineSettings(
             num_clips=self.num_clips_spin.value(),
             min_len=self.min_len_spin.value(),
@@ -663,6 +732,8 @@ class MainWindow(QMainWindow):
             manual_track_path=self.selected_track_path or "",
             manual_track_attribution=self.selected_track.attribution_line() if self.selected_track else "",
             local_music_path=self.local_music_path or "",
+            local_track_assignments=local_track_assignments,
+            local_reel_track=local_reel_track,
             beat_sync_enabled=self.beat_sync_checkbox.isChecked(),
             resolution_tier=self.resolution_combo.currentData(),
             fps_tier=self.fps_combo.currentData(),

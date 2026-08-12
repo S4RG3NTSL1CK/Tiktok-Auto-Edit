@@ -1,6 +1,6 @@
 import tempfile
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -79,6 +79,11 @@ class PipelineSettings:
     manual_track_path: str = ""
     manual_track_attribution: str = ""
     local_music_path: str = ""
+    # 0-based clip index -> explicit track path, only for music_source ==
+    # "local" with a folder. A clip index absent from this dict falls back
+    # to the existing round-robin pick_local_track behavior.
+    local_track_assignments: dict = field(default_factory=dict)
+    local_reel_track: str = ""
     beat_sync_enabled: bool = True
     resolution_tier: str = "1080p"  # "source" | "1080p" | "4k"
     fps_tier: str = "source"        # "source" | "30" | "60"
@@ -243,7 +248,8 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 music_path = settings.manual_track_path
                 attribution_line = settings.manual_track_attribution
             elif settings.music_enabled and settings.music_source == "local":
-                track_path = pick_local_track(local_tracks, used_local_paths)
+                assigned = settings.local_track_assignments.get(i)
+                track_path = Path(assigned) if assigned else pick_local_track(local_tracks, used_local_paths)
                 used_local_paths.add(str(track_path))
                 music_path = track_path
                 attribution_line = f"Local file: {track_path.name}"
@@ -367,7 +373,10 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 reel_music_path = settings.manual_track_path
                 reel_attribution = settings.manual_track_attribution
             elif settings.music_enabled and settings.music_source == "local" and local_tracks:
-                track_path = pick_local_track(local_tracks, set())
+                track_path = (
+                    Path(settings.local_reel_track) if settings.local_reel_track
+                    else pick_local_track(local_tracks, set())
+                )
                 reel_music_path = track_path
                 reel_attribution = f"Local file: {track_path.name}"
             elif settings.music_enabled and settings.music_source == "auto" and music_client:
