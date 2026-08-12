@@ -44,41 +44,66 @@ def _motion_center_x(gray_frames: list) -> float:
     return weighted_center / len(col_sums)
 
 
-def find_horizontal_focus(video_path: str, start: float, end: float, sample_count: int = 8) -> float:
-    """Returns a 0..1 fraction of frame width for where the subject/action
-    is horizontally within [start, end] — used to offset a vertical/square
-    crop instead of always centering it.
+def find_horizontal_focus_track(video_path: str, start: float, end: float, sample_interval: float = 2.5) -> list:
+    """Returns [(t_relative_to_start, focus_x), ...] tracking where the
+    subject/action is horizontally, sampled roughly every `sample_interval`
+    seconds across [start, end] — NOT a single static value for the whole
+    clip. A fixed offset falls apart on longer or high-motion clips (a
+    60s boss fight where the subject moves all over the frame): confirmed
+    by reviewing real output where a single-offset crop clearly drifted off
+    the action partway through a long clip. `t_relative_to_start` is
+    0-based (0 at `start`) to match ffmpeg's `t` inside a filter graph
+    after input-side `-ss` trimming, which rebases PTS to ~0.
 
-    Priority: detected face position (YuNet DNN, MIT-licensed bundled
-    model) if at least one sample has a face, else a motion-weighted
-    saliency fallback (extends the frame-diff approach from
-    motion_energy.py to track horizontal concentration, not just
-    magnitude), else 0.5 (plain center) as the safe default.
+    Per sample: detected face position (YuNet) first, else a short local
+    motion estimate (two nearby frames, not the whole clip), else the
+    previous sample's value for continuity, else 0.5 center as the final
+    fallback. Light exponential smoothing is applied across the resulting
+    sequence so the crop pans rather than snaps between samples.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        return 0.5
+        return [(0.0, 0.5)]
     try:
         duration = max(end - start, 0.1)
-        sample_times = np.linspace(start, end, sample_count, endpoint=False) + duration / (2 * sample_count)
+        num_samples = max(int(duration / sample_interval), 1) + 1
+        sample_rel_times = np.linspace(0, duration, num_samples)
 
-        face_centers = []
-        gray_frames = []
-        for t in sample_times:
-            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+        track = []
+        prev_fx = None
+        for t_rel in sample_rel_times:
+            t_abs = start + t_rel
+            cap.set(cv2.CAP_PROP_POS_MSEC, t_abs * 1000)
             ok, frame = cap.read()
             if not ok:
+                fx = prev_fx if prev_fx is not None else 0.5
+                track.append((float(t_rel), fx))
                 continue
-            face_x = _detect_face_center_x(frame)
-            if face_x is not None:
-                face_centers.append(face_x)
-            small = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
-            gray_frames.append(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY))
 
-        if face_centers:
-            return float(np.median(face_centers))
-        if gray_frames:
-            return _motion_center_x(gray_frames)
-        return 0.5
+            fx = _detect_face_center_x(frame)
+            if fx is None:
+                cap.set(cv2.CAP_PROP_POS_MSEC, max(t_abs - 0.2, start) * 1000)
+                ok2, frame2 = cap.read()
+                if ok2:
+                    small1 = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
+                    small2 = cv2.resize(frame2, (160, 90), interpolation=cv2.INTER_AREA)
+                    gray1 = cv2.cvtColor(small1, cv2.COLOR_BGR2GRAY)
+                    gray2 = cv2.cvtColor(small2, cv2.COLOR_BGR2GRAY)
+                    motion_fx = _motion_center_x([gray2, gray1])
+                    fx = motion_fx if motion_fx != 0.5 else None
+            if fx is None:
+                fx = prev_fx if prev_fx is not None else 0.5
+
+            track.append((float(t_rel), fx))
+            prev_fx = fx
+
+        if not track:
+            return [(0.0, 0.5)]
+
+        alpha = 0.35
+        smoothed_xs = [track[0][1]]
+        for _, fx in track[1:]:
+            smoothed_xs.append(alpha * fx + (1 - alpha) * smoothed_xs[-1])
+        return [(t, fx) for (t, _), fx in zip(track, smoothed_xs)]
     finally:
         cap.release()

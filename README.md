@@ -79,16 +79,20 @@ back to scoring without the hook signal rather than failing the run.
 ## Smart crop
 
 When cropping down to 9:16 or 1:1, the app no longer just center-crops
-blindly. Per clip, it samples several frames across the clip's time range
-and runs face detection (YuNet, a small MIT-licensed local DNN model —
-bundled in the app, no network call) — if a face is found, the crop is
-horizontally centered on it instead of the raw frame center. If no face is
-found anywhere in the sampled frames (b-roll, wide shots, no people on
-screen), it falls back to a motion-weighted saliency estimate — the crop
-centers on wherever the visual action actually is — and only falls back to
-plain center-crop if neither signal finds anything. This only affects the
-horizontal offset; vertical framing is unaffected. Aspect mode "original"
-skips this entirely since no horizontal crop happens in that mode.
+blindly. It samples across the clip's time range roughly every 2.5s (not
+once for the whole clip) and runs face detection (YuNet, a small
+MIT-licensed local DNN model — bundled in the app, no network call) at
+each sample — if a face is found, the crop centers on it; otherwise it
+falls back to a motion-weighted saliency estimate for that moment, or the
+previous sample's position if neither finds anything, smoothed so the pan
+doesn't jump between samples. The crop then **pans smoothly over time** to
+follow the subject instead of using one fixed offset for the whole clip —
+important on longer or high-motion clips, where a subject moving around
+during a 30-60s clip would otherwise drift out of a crop window computed
+once at the start. This only affects the horizontal offset; vertical
+framing is unaffected (a 9:16 crop from a landscape source keeps the full
+source height). Aspect mode "original" skips this entirely since no
+horizontal crop happens in that mode.
 
 ## Highlight reel
 
@@ -105,11 +109,16 @@ cut. The total reel length targets the same range as one normal clip (the
 midpoint of your min/max clip length setting, split evenly across however
 many clips you generated) — so with the default 15–45s range, the reel
 itself lands around 30s regardless of how many clips fed into it, not
-N times longer. If clips have different background tracks (Auto music mode
-can pick a different track per clip), the audio crossfade smooths the
-transition between songs rather than cutting abruptly; for one continuous
-unbroken track throughout, pick Manual or Local (single file) music mode
-instead of Auto.
+N times longer.
+
+The reel always plays **one continuous track the whole way through**,
+regardless of music mode — even if Auto music picked a different track per
+clip, the reel doesn't inherit any of those. Snippets are pulled fresh
+from the original source with no music mixed in yet, stitched together,
+and then exactly one track (searched to fit the reel's full length) is
+mixed once over the assembled result. In Auto mode that's a fresh pick
+sized for the reel; in Manual/Local mode it's the same track/file you
+already chose.
 
 ## Video/music alignment
 

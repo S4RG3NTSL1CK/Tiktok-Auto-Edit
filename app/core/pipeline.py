@@ -10,7 +10,7 @@ from .audio_energy import compute_energy_curve, energy_in_range
 from .highlight_selector import select_highlights, select_snippet_window
 from .hook_scoring import compute_hook_curve
 from .motion_energy import compute_motion_curve
-from .smart_crop import find_horizontal_focus
+from .smart_crop import find_horizontal_focus_track
 from .transcription import TranscriptionError, transcribe_audio
 from .music_provider import (
     MusicProviderError, MusicSpec, default_cache_dir, get_client, get_music_for_clip,
@@ -255,11 +255,13 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
 
             # Face-aware crop focus: where to center the vertical/square crop
             # horizontally instead of always centering on the full frame.
-            # No-op for aspect="original" (no horizontal crop happens then),
-            # so skip the sampling work in that case.
+            # Time-varying (not a single static offset) so the crop pans to
+            # follow the subject on longer/high-motion clips instead of
+            # drifting off them partway through. No-op for aspect="original"
+            # (no horizontal crop happens then), so skip the sampling work.
             focus_x = 0.5
             if settings.aspect != "original":
-                focus_x = find_horizontal_focus(video_path, clip_start, clip_start + clip_duration)
+                focus_x = find_horizontal_focus_track(video_path, clip_start, clip_start + clip_duration)
 
             out_path = output_dir / f"clip_{i + 1:02d}.mp4"
             ffmpeg_utils.export_clip(
@@ -286,13 +288,6 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
             if attribution_line and not is_local_music and not attribution_line.startswith("(music skipped"):
                 attributions.append(f"{out_path.name}: {attribution_line}")
 
-        if attributions:
-            attributions_path = output_dir / "ATTRIBUTIONS.txt"
-            attributions_path.write_text(
-                "Keep this file with your clips if any track below requires attribution "
-                "(any non-CC0 license).\n\n" + "\n".join(attributions) + "\n"
-            )
-
         if settings.create_highlight_reel and results:
             report(97, "Pulling highlights for the reel...")
             # Target the reel at the SAME length range as one normal clip,
@@ -307,15 +302,74 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                     times, combined_values, r.start, r.end, per_snippet_duration,
                 )
                 snippet_duration = snippet_end - snippet_start
-                rel_start = snippet_start - r.start
+                # Extracted straight from the ORIGINAL source, not the
+                # already-rendered clip: each clip's own music is already
+                # mixed into its file, so trimming from that would carry a
+                # different track into each segment of the reel. One track
+                # gets mixed once over the whole assembled reel below
+                # instead, so it doesn't change at every cut.
+                snippet_focus_x = 0.5
+                if settings.aspect != "original":
+                    snippet_focus_x = find_horizontal_focus_track(video_path, snippet_start, snippet_end)
                 snippet_path = tmp_dir / f"reel_snippet_{i}.mp4"
-                ffmpeg_utils.trim_clip(r.path, str(snippet_path), rel_start, snippet_duration)
+                ffmpeg_utils.export_clip(
+                    video_path=video_path,
+                    output_path=str(snippet_path),
+                    start=snippet_start,
+                    duration=snippet_duration,
+                    width=info.width,
+                    height=info.height,
+                    aspect=settings.aspect,
+                    music_path=None,
+                    four_k_60fps=settings.four_k_60fps,
+                    focus_x=snippet_focus_x,
+                )
                 snippet_clips.append((str(snippet_path), snippet_duration))
 
             report(98, "Stitching highlight reel...")
-            reel_path = output_dir / "highlight_reel.mp4"
-            ffmpeg_utils.stitch_clips_with_crossfade(snippet_clips, str(reel_path))
+            reel_video_path = tmp_dir / "reel_no_music.mp4"
+            ffmpeg_utils.stitch_clips_with_crossfade(snippet_clips, str(reel_video_path))
             reel_duration = sum(d for _, d in snippet_clips) - max(len(snippet_clips) - 1, 0) * 0.4
+
+            reel_music_path = None
+            reel_attribution = ""
+            if settings.music_enabled and settings.music_source == "manual":
+                reel_music_path = settings.manual_track_path
+                reel_attribution = settings.manual_track_attribution
+            elif settings.music_enabled and settings.music_source == "local" and local_tracks:
+                track_path = pick_local_track(local_tracks, set())
+                reel_music_path = track_path
+                reel_attribution = f"Local file: {track_path.name}"
+            elif settings.music_enabled and settings.music_source == "auto" and music_client:
+                try:
+                    reel_music_path, track = get_music_for_clip(
+                        music_client, reel_duration, cache_dir, set(), MusicSpec(
+                            tags=settings.music_tags,
+                            instrumental_only=settings.music_instrumental_only,
+                            # "auto" means per-clip energy-matching, which
+                            # doesn't cleanly apply to one track spanning
+                            # several different highlights' energy levels.
+                            energy=settings.music_energy if settings.music_energy != "auto" else "any",
+                        ),
+                    )
+                    reel_attribution = track.attribution_line()
+                except MusicProviderError as exc:
+                    reel_attribution = f"(music skipped for reel: {exc})"
+
+            report(99, "Mixing reel music...")
+            reel_path = output_dir / "highlight_reel.mp4"
+            if reel_music_path:
+                ffmpeg_utils.mix_music_over_video(
+                    str(reel_video_path), str(reel_music_path), str(reel_path),
+                    duration=reel_duration,
+                    music_volume=settings.music_volume, orig_volume=settings.orig_volume,
+                )
+                is_local_reel_track = settings.music_source == "local"
+                if reel_attribution and not is_local_reel_track and not reel_attribution.startswith("(music skipped"):
+                    attributions.append(f"{reel_path.name}: {reel_attribution}")
+            else:
+                shutil.copy(str(reel_video_path), str(reel_path))
+
             results.append(ClipResult(
                 path=str(reel_path),
                 start=0.0,
@@ -323,8 +377,16 @@ def run_pipeline(video_path: str, settings: PipelineSettings, progress_cb=None, 
                 track_attribution=(
                     f"Highlight reel — best {per_snippet_duration:.1f}s moment from each of "
                     f"{len(snippet_clips)} clips, stitched with crossfades"
+                    + (f", one track throughout: {reel_attribution}" if reel_music_path else "")
                 ),
             ))
+
+        if attributions:
+            attributions_path = output_dir / "ATTRIBUTIONS.txt"
+            attributions_path.write_text(
+                "Keep this file with your clips if any track below requires attribution "
+                "(any non-CC0 license).\n\n" + "\n".join(attributions) + "\n"
+            )
 
         report(100, "Done.")
         return results
